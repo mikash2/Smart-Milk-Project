@@ -3,7 +3,7 @@ require('dotenv').config();
 module.exports = {
   port: process.env.PORT || 3000,
   database: {
-    host: process.env.DB_HOST || '127.0.0.1',
+    host: process.env.DB_HOST || 'host.docker.internal',
     port: Number(process.env.DB_PORT || 3306),
     user: process.env.DB_USER || 'appuser',
     password: process.env.DB_PASS || 'apppass',
