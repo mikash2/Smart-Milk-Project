@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # Infrastructure
+  mqtt:
+    image: eclipse-mosquitto
+    ports:
+      - "1883:1883"
+      - "9001:9001"  # WebSocket
+    volumes:
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: milkdb
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d  
+
+
+  # Application Services
+  weight-service:
+    build: ./weight-service
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_TOPIC: milk/weight
+    depends_on:
+      - mqtt
+
+  analysis-service:
+    build: ./analysis-service
+    environment:
+      MQTT_HOST: mqtt
+      MYSQL_HOST: mysql
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    depends_on:
+      - mqtt
+      - mysql
+
+  updates-service:
+    build: ./updates-service
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_PORT: 1883
+      MYSQL_HOST: mysql
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    depends_on:
+      - mqtt
+      - mysql
+
+  user-service:
+    build: ./user-service
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mysql
+
+  ui-service:
+    build: ./ui-service
+    ports:
+      - "3000:3000"
+    depends_on:
+      - user-service
+
+volumes:
+  mysql_data:
+  mosquitto_data:
