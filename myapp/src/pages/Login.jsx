@@ -24,7 +24,7 @@ export default function Login() {
   };
 
   return (
-    <div className="center-screen" dir="rtl">
+    <div className="auth" dir="rtl">
       <div className="card auth__card max-420">
         <h1 className="auth__title">Smart Milk</h1>
         <p className="auth__subtitle">התחברי כדי לראות את מצב המיכל שלך</p>
