@@ -24,7 +24,7 @@ export function AuthProvider({ children }) {
       return { ok: false, error: "username, email ו-password הם חובה" };
     }
     try {
-      const { data } = await api.post("/register", {
+      const { data } = await api.post("/auth/register", {
         username: String(username).trim(),
         email: String(email).trim().toLowerCase(),
         password,
@@ -44,7 +44,7 @@ export function AuthProvider({ children }) {
       return { ok: false, error: "username ו-password הם חובה" };
     }
     try {
-      const { data } = await api.post("/login", {
+      const { data } = await api.post("/auth/login", {
         username: String(username).trim(),
         password,
       });
@@ -66,7 +66,7 @@ export function AuthProvider({ children }) {
 
   // התנתקות — מוחקת סשן בצד השרת ומנקה State
   const logout = async () => {
-    try { await api.post("/logout"); } catch { /* לא חוסם UI */ }
+    try { await api.post("/auth/logout"); } catch { /* לא חוסם UI */ }
     setUser(null);
     localStorage.removeItem("auth_user");
   };
