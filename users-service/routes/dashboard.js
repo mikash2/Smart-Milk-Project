@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../db'); // הנח שיש לך מודול כזה שמתחבר ל-DB
+const db = require('../database/connection');
 
 router.get('/status', async (req, res) => {
   try {

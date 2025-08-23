@@ -9,12 +9,12 @@ export const api = axios.create({
 
 // ===== Auth =====
 export const register = ({ username, password, email, full_name = null }) =>
-  api.post("/register", { username, password, email, full_name });
+  api.post("/auth/register", { username, password, email, full_name });
 
 export const login = ({ username, password }) =>
-  api.post("/login", { username, password });
+  api.post("/auth/login", { username, password });
 
-export const logout = () => api.post("/logout");
+export const logout = () => api.post("/auth/logout");
 
 // מי המשתמש המחובר (לא חובה אם כבר יש לך בקונטקסט)
 export const me = () => api.get("/me"); // החזר { id, username, ... }
