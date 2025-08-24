@@ -1,0 +1,34 @@
+﻿name: smart-milk-project
+services:
+  db:
+    container_name: smartmilk_mysql
+    environment:
+      MYSQL_DATABASE: smartmilk
+      MYSQL_PASSWORD: apppass
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_USER: appuser
+    image: mysql:8.0
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 3306
+        published: "3306"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: volume
+        source: db_data
+        target: /var/lib/mysql
+        volume: {}
+      - type: bind
+        source: C:\Users\97254\smart-milk-project\db\init
+        target: /docker-entrypoint-initdb.d
+        bind:
+          create_host_path: true
+networks:
+  default:
+    name: smart-milk-project_default
+volumes:
+  db_data:
+    name: smart-milk-project_db_data
