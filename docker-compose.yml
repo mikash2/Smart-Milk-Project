@@ -120,6 +120,19 @@ services:
     restart: unless-stopped
 
 
+  myapp:
+    build:
+      context: ./myapp
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:3001}
+    image: smart-milk/myapp:1.0
+    ports:
+      - "5173:80"
+    depends_on:
+      - users-service
+
+
 volumes:
   mysql_data:
   mosquitto_data:

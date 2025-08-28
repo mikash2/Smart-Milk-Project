@@ -18,25 +18,26 @@ export function AuthProvider({ children }) {
     return saved ? JSON.parse(saved) : null;
   });
 
-  // הרשמה — חובה username + email + password
-  const register = async ({ username, email, password, full_name = null }) => {
-    if (!username || !email || !password) {
-      return { ok: false, error: "username, email ו-password הם חובה" };
-    }
-    try {
-      const { data } = await api.post("/auth/register", {
-        username: String(username).trim(),
-        email: String(email).trim().toLowerCase(),
-        password,
-        full_name,
-      });
-      // השרת לא פותח סשן בהרשמה — נעבור למסך Login
-      return { ok: true, data };
-    } catch (e) {
-      const msg = e.response?.data?.message || "שגיאה בהרשמה";
-      return { ok: false, error: msg };
-    }
-  };
+ // הרשמה — חובה username + email + password
+const register = async ({ username, email, password, full_name = null, phone = null, device_id }) => {
+  if (!username || !email || !password || !device_id) {
+    return { ok: false, error: "username, email, password ו-device_id הם חובה" };
+  }
+  try {
+    const { data } = await api.post("/auth/register", {
+      username: String(username).trim(),
+      email: String(email).trim().toLowerCase(),
+      password,
+      full_name,
+      phone: phone ? String(phone).trim() : null,
+      device_id: String(device_id).trim(),
+    });
+    return { ok: true, data };
+  } catch (e) {
+    const msg = e.response?.data?.message || "שגיאה בהרשמה";
+    return { ok: false, error: msg };
+  }
+};
 
   // התחברות — רק username + password
   const login = async (username, password) => {

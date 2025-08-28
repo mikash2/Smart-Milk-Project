@@ -14,6 +14,8 @@ export default function Signup() {
     password: "",
     confirm: "",
     full_name: "",
+    phone: "",
+    device_id: "",
   });
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
@@ -26,8 +28,9 @@ export default function Signup() {
     const email = form.email.trim().toLowerCase();
     const password = form.password;
     const confirm = form.confirm;
-
-    if (!username || !email || !password || !confirm) {
+    const deviceId = form.device_id.trim();
+  
+    if (!username || !email || !password || !confirm || !deviceId) {
       return { ok: false, msg: "נא למלא את כל השדות" };
     }
     if (!/^[a-zA-Z0-9._-]{3,100}$/.test(username)) {
@@ -35,6 +38,9 @@ export default function Signup() {
     }
     if (!emailRe.test(email)) {
       return { ok: false, msg: "אימייל לא תקין" };
+    }
+    if (!/^[a-zA-Z0-9._-]{3,50}$/.test(deviceId)) {
+      return { ok: false, msg: "device_id לא תקין (3–50 תווים, אותיות/ספרות/._-)" };
     }
     if (password.length < 6) {
       return { ok: false, msg: "סיסמה חייבת להיות באורך מינימלי 6" };
@@ -59,7 +65,10 @@ export default function Signup() {
       username: form.username.trim(),
       email: form.email.trim().toLowerCase(),
       password: form.password,
-      full_name: form.full_name.trim() || null,    });
+      full_name: form.full_name.trim() || null,
+      phone: form.phone.trim() || null,
+      device_id: form.device_id.trim(), // מספר מכשיר
+    });
     setLoading(false);
 
     if (res.ok) {
@@ -108,6 +117,26 @@ export default function Signup() {
             />
           </div>
 
+          <div className="auth__group">
+            <label className="label">טלפון (אופציונלי)</label>
+            <input
+              className="input"
+              name="phone"
+              value={form.phone}
+              onChange={onChange}
+            />
+          </div>
+
+          <div className="auth__group">
+            <label className="label">מספר מכשיר</label>
+            <input
+              className="input"
+              name="device_id"
+              value={form.device_id}
+              onChange={onChange}
+            />
+          </div>
+          
           <div className="auth__group">
             <label className="label">סיסמה</label>
             <input

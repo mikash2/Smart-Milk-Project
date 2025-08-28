@@ -7,14 +7,15 @@ const db = require('../database/connection');
 
 // User registration
 router.post('/register', async (req, res) => {
-  const { username, password, email, full_name } = req.body || {};
+  const { username, password, email, full_name, phone = null, device_id } = req.body || {};
 
-  if (!username || !password || !email) {
-    return res.status(400).json({ success: false, message: 'username, password and email are required' });
+  if (!username || !password || !email || !device_id) {
+    return res.status(400).json({ success: false, message: 'username, password, email and device_id are required' });
   }
 
   const uname = String(username).trim();
   const emailLower = String(email).toLowerCase().trim();
+  const deviceId = String(device_id).trim();
 
   // ולידציה בסיסית
   if (!/^[a-zA-Z0-9._-]{3,100}$/.test(uname)) {
@@ -23,6 +24,9 @@ router.post('/register', async (req, res) => {
   const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRe.test(emailLower)) {
     return res.status(400).json({ success: false, message: 'invalid email' });
+  }
+  if (!/^[a-zA-Z0-9._-]{3,50}$/.test(deviceId)) {
+    return res.status(400).json({ success: false, message: 'invalid device_id (3-50 chars, letters/digits/._-)' });
   }
 
   try {
@@ -33,10 +37,13 @@ router.post('/register', async (req, res) => {
     const [eTaken] = await db.query('SELECT 1 FROM `users` WHERE `email` = ? LIMIT 1', [emailLower]);
     if (eTaken) return res.status(409).json({ success: false, message: 'Email already registered' });
 
+    const [dTaken] = await db.query('SELECT 1 FROM `users` WHERE `device_id` = ? LIMIT 1', [deviceId]);
+    if (dTaken) return res.status(409).json({ success: false, message: 'Device ID already registered' });
+
     // הוספה
     const result = await db.query(
-      'INSERT INTO `users` (`username`,`password`,`email`,`full_name`) VALUES (?,?,?,?)',
-      [uname, password, emailLower, full_name || null]
+      'INSERT INTO `users` (`username`,`password`,`email`,`full_name`,`phone`,`device_id`) VALUES (?,?,?,?,?,?)',
+      [uname, password, emailLower, full_name || null, phone || null, deviceId]
     );
 
     return res.status(201).json({ success: true, user_id: result.insertId, username: uname });
@@ -49,13 +56,13 @@ router.post('/register', async (req, res) => {
     if (e.code === 'ER_DUP_ENTRY') {
       const field = /username/i.test(e.sqlMessage) ? 'Username'
                  : /email/i.test(e.sqlMessage)    ? 'Email'
+                 : /device_id/i.test(e.sqlMessage) ? 'Device ID'
                  : 'Value';
       return res.status(409).json({ success: false, message: `${field} already exists` });
     }
     return res.status(500).json({ success: false, message: e.sqlMessage || e.message || 'DB error' });
   }
 });
-
 // User login
 router.post('/login', async (req, res) => {
   const { username, password } = req.body || {};

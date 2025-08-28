@@ -8,8 +8,8 @@ export const api = axios.create({
 });
 
 // ===== Auth =====
-export const register = ({ username, password, email, full_name = null }) =>
-  api.post("/auth/register", { username, password, email, full_name });
+export const register = ({ username, password, email, full_name = null, phone = null, device_id }) =>
+  api.post("/auth/register", { username, password, email, full_name, phone, device_id });
 
 export const login = ({ username, password }) =>
   api.post("/auth/login", { username, password });
@@ -21,8 +21,8 @@ export const me = () => api.get("/me"); // החזר { id, username, ... }
 
 // ===== Dashboard =====
 // נתוני הדאשבורד עבור המשתמש המחובר
-export const getDashboard = () => api.get("/api/dashboard");
-// החזרה צפויה:
+// ===== Dashboard =====
+export const getDashboard = () => api.get("/dashboard/status");// החזרה צפויה:
 // {
 //   metrics: {
 //     milk_current_ml, tank_capacity_ml, avg_daily_consumption_ml,

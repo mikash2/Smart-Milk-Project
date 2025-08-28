@@ -129,17 +129,20 @@ body {
 
 /* ====== עמוד Login ====== */
 .auth {
-  position: fixed;     /* עיגון ל‑viewport, לא תלוי בהורים */
-  inset: 0;            /* top/right/bottom/left: 0 */
+  position: fixed;
+  inset: 0;
   display: grid;
-  place-items: center; /* מרכז אופקית ואנכית */
-  padding: 40px 16px;  /* מרחק בטלפונים */
+  place-items: center;
+  padding: 40px 16px;
   z-index: 1;
+  overflow: auto; /* add: enable scroll when taller than viewport */
 }
 .auth__card {
   width: 100%;
   max-width: 420px;
   padding: 28px;
+  max-height: calc(100dvh - 80px); /* add: prevent card from exceeding viewport */
+  overflow: auto;                   /* add: scroll inside the card if needed */
 }
 .auth__title {
   font-size: 28px;
@@ -172,17 +175,22 @@ body {
 
 /* ====== תוכן Dashboard ====== */
 .shell {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 32px 22px;  /* קצת יותר גובה מלמעלה */
+  min-height: calc(100dvh - 64px); /* header is 64px */
+  padding: 16px 16px;              /* was 32px 22px */
+  display: grid;
+  grid-auto-rows: min-content;
+  gap: 12px;                       /* compact vertical spacing */
 }
 
 .grid {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 .grid--3 {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  align-items: stretch;
 }
 @media (max-width: 960px) {
   .grid--3 { grid-template-columns: 1fr 1fr }
@@ -192,7 +200,7 @@ body {
 }
 
 .stat {
-  padding: 18px;
+  padding: 12px;
 }
 .stat__label { color: var(--muted); font-size: 13px }
 .stat__value { font-size: 28px; font-weight: 800; margin-top: 6px }
@@ -203,10 +211,10 @@ body {
 .stat__trend--bad { color: var(--danger) }
 
 .panel {
-  padding: 18px;
+  padding: 12px;
 }
 .panel__title {
-  margin: 0 0 10px; font-size: 16px; color: var(--muted);
+  margin: 0 0 8px; font-size: 15px;
 }
 .row {
   display: flex; align-items: center; justify-content: space-between;
@@ -225,8 +233,7 @@ body {
 .link:hover { filter: brightness(1.1); }
 
 /* מצב קומפקטי לעמודי טפסים ארוכים (Signup) */
-.auth--compact .auth__card { padding: 20px; }
-
+.auth--compact .auth__card { padding: 20px; max-height: calc(100dvh - 40px); overflow: auto; }
 .auth--compact .auth__title {
   font-size: 24px;
   margin: 0 0 4px;
@@ -254,6 +261,26 @@ body {
 .auth--compact .error {
   font-size: 12px;
   margin-top: 4px;
+}
+
+/* Milk carton demo */
+.milk-carton {
+  width: 80px;
+  height: 140px;
+  border: 2px solid var(--border);
+  border-radius: 6px 6px 4px 4px;
+  background: #0b1220;
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 0 8px rgba(0,0,0,.25);
+}
+.milk-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, rgba(34,211,238,0.95), rgba(6,182,212,0.95));
+  transition: height .3s ease;
 }
 
 /* כפתורים קטנים יותר */
@@ -300,13 +327,21 @@ body {
 
 /* גריד 2 עמודות רספונסיבי (2fr / 1fr) */
 .grid--aside {
-  display: grid;
   grid-template-columns: 2fr 1fr;
-  gap: 16px;
+  gap: 12px;
 }
 @media (max-width: 960px) {
   .grid--aside { grid-template-columns: 1fr; }
 }
+
+/* Limit panel heights and allow internal scroll if content grows */
+.panel {
+  max-height: 320px;
+  overflow: auto;
+}
+
+/* Optional: smaller headings in cards for less vertical use */
+.panel__title { margin: 0 0 8px; font-size: 15px; }
 
 /* קארדים מרחפים קלות */
 .card:hover { transform: translateY(-1px); transition: transform .15s ease; }
@@ -318,3 +353,207 @@ body {
 
 /* ערכי סטטוסים – קצת יותר בולטים */
 .stat__value { letter-spacing: 0.2px; }
+
+/* פריסה מלאה */
+.fullwidth { max-width: none; width: 100%; }
+
+/* קונטיינר התוכן */
+.shell {
+  min-height: calc(100dvh - 64px);
+  padding: 16px 16px;
+}
+
+/* גרידים רספונסיביים – ממלאים את הרוחב */
+.grid { display: grid; gap: 16px; align-items: stretch; }
+
+/* 3 עמודות שנשברות רספונסיבית וממלאות גובה */
+.grid--3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+/* אזור aside: שתי עמודות שוות גובה */
+.grid--aside {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+@media (max-width: 960px) {
+  .grid--aside { grid-template-columns: 1fr; }
+}
+
+/* כרטיסים ופאנלים נמתחים לגובה התא */
+.card, .stat, .panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* אם תוכן הפאנל ארוך – גלילה פנימית */
+.panel { overflow: auto; }
+
+/* תאימות: כותרות קטנות יותר וריווח קומפקטי */
+.stat { padding: 12px; }
+.panel { padding: 12px; }
+.panel__title { margin: 0 0 8px; font-size: 15px; }
+
+/* פריסה לרוחב מלא */
+.fullwidth { max-width: none; width: 100%; }
+
+/* הגריד מתפרס לרוחב: כרטיסים יתפסו 1fr כל אחד (רספונסיבי) */
+.grid--3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+/* אזור ה־aside גם יתפרס לרוחב מלא */
+.grid--aside {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+@media (max-width: 960px) {
+  .grid--aside { grid-template-columns: 1fr; }
+}
+
+/* כרטיסים נמתחים למלוא התא כדי למלא רוחב/גובה */
+.card, .stat, .panel { height: 100%; display: flex; flex-direction: column; }
+
+/* Full-viewport layout, no page scroll */
+.shell {
+  height: calc(100dvh - 64px); /* header is 64px */
+  padding: 16px;
+  overflow: hidden;            /* no page scroll */
+}
+
+/* 2 rows (left) + tall right column spanning both rows */
+.dashboard-grid {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 2fr 2fr 1.2fr; /* fill width */
+  grid-template-rows: 1fr 1fr;          /* fill height */
+  gap: 16px;
+}
+
+/* Place sections */
+.dash-a { grid-column: 1 / 3; grid-row: 1; }
+.dash-b { grid-column: 1 / 3; grid-row: 2; }
+.dash-c { grid-column: 3 / 4; grid-row: 1 / 3; } /* full right side */
+
+/* Make cards stretch and scroll internally if needed */
+.card, .stat, .panel { height: 100%; display: flex; flex-direction: column; }
+.panel, .stat { overflow: auto; }
+
+/* Compact spacing so content fits comfortably */
+.grid { gap: 12px; }
+.stat { padding: 12px; }
+.panel { padding: 12px; }
+.panel__title { margin: 0 0 8px; font-size: 15px; }
+
+/* Optional: full width container */
+.fullwidth { max-width: none; width: 100%; }
+
+/* Full width container (override the old max-1100 approach) */
+.fullwidth { max-width: none; width: 100%; }
+
+/* Make the shell full width (override the old .shell with max-width) */
+.shell {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 16px;
+}
+
+/* Spread cards across the whole row responsively */
+.grid--3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+/* Sidebar section also full-width responsive */
+.grid--aside {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+@media (max-width: 960px) {
+  .grid--aside { grid-template-columns: 1fr; }
+}
+
+/* Cards fill their grid cell */
+.card, .stat, .panel { height: 100%; display: flex; flex-direction: column; }
+
+/* Force full‑width layout and spread cards across the page */
+.shell {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 16px !important;
+}
+
+.max-1100 {
+  max-width: none !important;
+  width: 100% !important;
+}
+
+/* Make the 3-up sections fill the row responsively */
+.grid--3 {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
+  gap: 16px !important;
+  align-items: stretch !important;
+}
+
+/* === react-grid-layout התאמות קצרות === */
+.layout { direction: rtl; }
+.react-grid-item > .card { height: 100%; display: flex; flex-direction: column; }
+.react-grid-item { z-index: 1; } /* שכבה מעל הרקע בזמן גרירה */
+
+
+/* Ensure the aside section also uses full width and stretches */
+.grid--aside {
+  display: grid !important;
+  grid-template-columns: 2fr 1fr !important;
+  gap: 16px !important;
+  align-items: stretch !important;
+}
+@media (max-width: 960px) {
+  .grid--aside { grid-template-columns: 1fr !important; }
+}
+/* === Drag & Drop Grid (SortableJS) === */
+#dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+#dash-grid .dash-cell { cursor: move; }           /* סמן גרירה נוח */
+.drag-ghost { opacity: .6; }                      /* פריט "רוח" בזמן גרירה */
+.drag-dragging .card { box-shadow: var(--shadow); }
+#dash-grid .card { height: 100%; display: flex; flex-direction: column; }
+
+/* Cards fill their cells */
+.card, .stat, .panel { height: 100%; display: flex; flex-direction: column; }
+
+/* --- Fix: אל תתני ל-body להיות flex / center --- */
+html, body, #root { width: 100% !important; height: 100% !important; }
+body { display: block !important; place-items: initial !important; } /* מבטל חלוקה לשניים */
+#root { display: block !important; margin: 0 !important; padding: 0 !important; }
+
+/* --- Full width לדשבורד --- */
+.shell, .fullwidth, #dash-grid { max-width: none !important; width: 100% !important; }
+
+/* אם בטעות הוגדרה פריסת גריד דו-עמודתית ב-shell – מבטלים */
+.shell { grid-template-columns: none !important; }
+
+/* לעזור לראות שהכול נמרח לרוחב */
+#dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); gap: 16px; }
+#dash-grid .card { height: 100%; display: flex; flex-direction: column; }

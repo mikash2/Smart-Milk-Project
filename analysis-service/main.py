@@ -3,8 +3,8 @@ import os
 import time
 from datetime import datetime
 
-import mysql.connector
-import paho.mqtt.client as mqtt
+import mysql.connector  # type: ignore
+import paho.mqtt.client as mqtt  # type: ignore
 
 # ======= ENV (תואם ל-compose) =======
 MQTT_HOST   = os.getenv("MQTT_HOST", "mqtt")

@@ -1,6 +1,6 @@
-import paho.mqtt.client as mqtt
+import paho.mqtt.client as mqtt  # type: ignore
 import os, time
-import mysql.connector
+import mysql.connector  # type: ignore
 from datetime import datetime
 
 # Configuration
