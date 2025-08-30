@@ -21,7 +21,7 @@ export const me = () => api.get("/me"); // החזר { id, username, ... }
 
 // ===== Dashboard =====
 // נתוני הדאשבורד עבור המשתמש המחובר
-export const getDashboard = () => api.get("/api/dashboard");
+export const getDashboard = () => api.get("/dashboard/status");
 // החזרה צפויה:
 // {
 //   metrics: {
