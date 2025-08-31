@@ -77,6 +77,15 @@ services:
       DEVICE_ID: device1
       ALERT_THRESHOLD: 200
 
+      # Email / SMTP (from .env)
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      FROM_EMAIL: ${FROM_EMAIL}
+      ALERT_COOLDOWN_MIN: ${ALERT_COOLDOWN_MIN}
+      DRY_RUN_EMAIL: ${DRY_RUN_EMAIL}
+
       PYTHONUNBUFFERED: "1"
     depends_on:
       mysql:
