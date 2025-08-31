@@ -14,7 +14,7 @@ data:
   CUP_DEFAULT_G: "60"
   MIN_DAYS_FOR_AVG: "2"
   FULL_BASELINE_LOOKBACK_DAYS: "0"
-  VITE_API_URL: "http://users-service:3000"
+  VITE_API_URL: "http://smart-milk.local/api"
 ---
 apiVersion: v1
 kind: Secret
@@ -242,6 +242,7 @@ spec:
       containers:
       - name: weight-service
         image: smart-milk/weight-service:latest
+        imagePullPolicy: IfNotPresent
         env:
         - name: MQTT_HOST
           value: "smart-milk-mosquitto-service"
@@ -279,6 +280,7 @@ spec:
       containers:
       - name: analysis-service
         image: smart-milk/analysis-service:latest
+        imagePullPolicy: IfNotPresent
         env:
         - name: MQTT_HOST
           value: "smart-milk-mosquitto-service"
@@ -372,6 +374,7 @@ spec:
       containers:
       - name: updates-service
         image: smart-milk/updates-service:latest
+        imagePullPolicy: IfNotPresent
         env:
         - name: MQTT_HOST
           value: "smart-milk-mosquitto-service"
@@ -440,20 +443,42 @@ spec:
       containers:
       - name: users-service
         image: smart-milk/users-service:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
         env:
+        # --- runtime / cors ---
         - name: NODE_ENV
           value: "production"
         - name: PORT
           value: "3000"
         - name: ALLOWED_ORIGINS
-          value: "http://smart-milk-myapp"
+          value: "http://smart-milk.local"
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
               name: smart-milk-secrets
               key: JWT_SECRET
+        # --- DB (what your Node code usually reads) ---
+        - name: DB_HOST
+          value: "smart-milk-mysql-service"
+        - name: DB_PORT
+          value: "3306"
+        - name: DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MYSQL_DATABASE
+        - name: DB_USER
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MYSQL_USER
+        - name: DB_PASS
+          valueFrom:
+            secretKeyRef:
+              name: smart-milk-secrets
+              key: MYSQL_PASSWORD
         - name: MYSQL_HOST
           value: "smart-milk-mysql-service"
         - name: MYSQL_PORT
@@ -500,6 +525,7 @@ spec:
       containers:
       - name: myapp
         image: smart-milk/myapp:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80
         env:
@@ -568,12 +594,11 @@ spec:
     targetPort: 80
   type: LoadBalancer
 ---
+# UI ingress (no rewrite needed)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: smart-milk-ingress
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
+  name: smart-milk-ui-ingress
 spec:
   rules:
   - host: smart-milk.local
@@ -586,3 +611,23 @@ spec:
             name: smart-milk-myapp-service
             port:
               number: 80
+---
+# API ingress (strip the /api prefix before sending to Node on :3000)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: smart-milk-api-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  rules:
+  - host: smart-milk.local
+    http:
+      paths:
+      - path: /api(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: smart-milk-users-service
+            port:
+              number: 3000
