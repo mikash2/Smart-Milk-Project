@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
         - name: weight
-          image: yourdockerhub/weight-service:1.0
+          image: lirazp/weight-service:1.0
           env:
             - { name: MQTT_HOST,  value: "mqtt" }
             - { name: MQTT_TOPIC, value: "milk/weight" }
@@ -44,7 +44,7 @@ spec:
     spec:
       containers:
         - name: analysis
-          image: yourdockerhub/analysis-service:1.0
+          image: liraz/analysis-service:1.0
           env:
             - { name: MQTT_HOST,   value: "mqtt" }
             - { name: MQTT_PORT,   value: "1883" }
@@ -79,7 +79,7 @@ spec:
     spec:
       containers:
         - name: updates
-          image: yourdockerhub/updates-service:1.0
+          image: liraz/updates-service:1.0
           env:
             - { name: MQTT_HOST,  value: "mqtt" }
             - { name: MQTT_PORT,  value: "1883" }
