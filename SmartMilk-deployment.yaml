@@ -1,0 +1,687 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smart-milk-config
+data:
+  MYSQL_DATABASE: "users_db"
+  MYSQL_USER: "milkuser"
+  MQTT_TOPIC: "milk/weight"
+  DEVICE_ID: "device1"
+  ALERT_THRESHOLD: "200"
+  ANALYSIS_WINDOW_DAYS: "7"
+  CUP_MIN_DROP_G: "25"
+  CUP_MAX_DROP_G: "350"
+  CUP_DEFAULT_G: "60"
+  MIN_DAYS_FOR_AVG: "2"
+  FULL_BASELINE_LOOKBACK_DAYS: "0"
+  VITE_API_URL: "http://localhost:30000"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: smart-milk-secrets
+type: Opaque
+data:
+  MYSQL_ROOT_PASSWORD: TWlsazEyMyE=  # Milk123! in base64
+  MYSQL_PASSWORD: TWlsazEyMyE=        # Milk123! in base64
+  JWT_SECRET: cGxlYXNlX2NoYW5nZV9tZQ==  # please_change_me in base64
+---
+# MySQL Database
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smart-milk-mysql
+  labels:
+    app: smart-milk-mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smart-milk-mysql
+  template:
+    metadata:
+      labels:
+        app: smart-milk-mysql
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        ports:
+        - containerPort: 3306
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: smart-milk-secrets
+              key: MYSQL_ROOT_PASSWORD
+        - name: MYSQL_DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MYSQL_DATABASE
+        - name: MYSQL_USER
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MYSQL_USER
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: smart-milk-secrets
+              key: MYSQL_PASSWORD
+        volumeMounts:
+        - name: mysql-data
+          mountPath: /var/lib/mysql
+        - name: mysql-init
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: mysql-data
+        persistentVolumeClaim:
+          claimName: mysql-pvc
+      - name: mysql-init
+        configMap:
+          name: mysql-init-config
+---
+# MySQL Init ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-init-config
+data:
+  001_schema.sql: |
+    -- === Database (first-run only) ===========================================
+    CREATE DATABASE IF NOT EXISTS users_db
+      DEFAULT CHARACTER SET utf8mb4
+      COLLATE utf8mb4_unicode_ci;
+
+    USE users_db;
+
+    -- === users ================================================================
+    CREATE TABLE IF NOT EXISTS users (
+      id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      username   VARCHAR(64)  NOT NULL,
+      password   VARCHAR(255) NOT NULL,
+      full_name  VARCHAR(255) NOT NULL,
+      email      VARCHAR(255) NOT NULL,
+      phone      VARCHAR(32)  NULL,
+      device_id  VARCHAR(50)  NOT NULL,
+      created_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_username (username),
+      UNIQUE KEY uniq_email    (email)
+    ) ENGINE=InnoDB
+      DEFAULT CHARSET=utf8mb4
+      COLLATE=utf8mb4_unicode_ci;
+
+    -- === weight_data (no FK, supports shared devices) ========================
+    CREATE TABLE IF NOT EXISTS weight_data (
+      id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      device_id   VARCHAR(50)  NOT NULL,
+      weight      FLOAT        NOT NULL,
+      `timestamp` DATETIME     NOT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_device_time (device_id, `timestamp`),
+      KEY idx_weight_device_time (device_id, `timestamp`)
+    ) ENGINE=InnoDB
+      DEFAULT CHARSET=utf8mb4
+      COLLATE=utf8mb4_unicode_ci;
+
+    -- === user_stats ==========================================================
+    CREATE TABLE IF NOT EXISTS user_stats (
+      user_id                     INT UNSIGNED NOT NULL,
+      container_id                VARCHAR(128) NULL,
+      current_amount_g            FLOAT        NULL,
+      avg_daily_consumption_g     FLOAT        NULL,
+      cups_left                   FLOAT        NULL,
+      percent_full                FLOAT        NULL,
+      expected_empty_date         DATE         NULL,
+      PRIMARY KEY (user_id),
+      CONSTRAINT fk_stats_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    ) ENGINE=InnoDB
+      DEFAULT CHARSET=utf8mb4
+      COLLATE=utf8mb4_unicode_ci;
+---
+# MySQL PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Mosquitto MQTT Broker
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smart-milk-mosquitto
+  labels:
+    app: smart-milk-mosquitto
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smart-milk-mosquitto
+  template:
+    metadata:
+      labels:
+        app: smart-milk-mosquitto
+    spec:
+      containers:
+      - name: mosquitto
+        image: eclipse-mosquitto:latest
+        ports:
+        - containerPort: 1883
+        volumeMounts:
+        - name: mosquitto-config
+          mountPath: /mosquitto/config
+        - name: mosquitto-data
+          mountPath: /mosquitto/data
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      volumes:
+      - name: mosquitto-config
+        configMap:
+          name: mosquitto-config
+      - name: mosquitto-data
+        persistentVolumeClaim:
+          claimName: mosquitto-pvc
+---
+# Mosquitto Config
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mosquitto-config
+data:
+  mosquitto.conf: |
+    listener 1883
+    allow_anonymous true
+    persistence true
+    persistence_location /mosquitto/data/
+---
+# Mosquitto PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mosquitto-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+---
+# Weight Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smart-milk-weight-service
+  labels:
+    app: smart-milk-weight-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smart-milk-weight-service
+  template:
+    metadata:
+      labels:
+        app: smart-milk-weight-service
+    spec:
+      containers:
+      - name: weight-service
+        image: smart-milk/weight-service:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: MQTT_HOST
+          value: "smart-milk-mosquitto-service"
+        - name: MQTT_PORT
+          value: "1883"
+        - name: MQTT_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MQTT_TOPIC
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+---
+# Analysis Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smart-milk-analysis-service
+  labels:
+    app: smart-milk-analysis-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smart-milk-analysis-service
+  template:
+    metadata:
+      labels:
+        app: smart-milk-analysis-service
+    spec:
+      containers:
+      - name: analysis-service
+        image: smart-milk/analysis-service:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: MQTT_HOST
+          value: "smart-milk-mosquitto-service"
+        - name: MQTT_PORT
+          value: "1883"
+        - name: MQTT_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MQTT_TOPIC
+        - name: MYSQL_HOST
+          value: "smart-milk-mysql-service"
+        - name: MYSQL_PORT
+          value: "3306"
+        - name: MYSQL_DB
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MYSQL_DATABASE
+        - name: MYSQL_USER
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MYSQL_USER
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: smart-milk-secrets
+              key: MYSQL_PASSWORD
+        - name: DEVICE_ID
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: DEVICE_ID
+        - name: ANALYSIS_WINDOW_DAYS
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: ANALYSIS_WINDOW_DAYS
+        - name: CUP_MIN_DROP_G
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: CUP_MIN_DROP_G
+        - name: CUP_MAX_DROP_G
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: CUP_MAX_DROP_G
+        - name: CUP_DEFAULT_G
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: CUP_DEFAULT_G
+        - name: MIN_DAYS_FOR_AVG
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MIN_DAYS_FOR_AVG
+        - name: FULL_BASELINE_LOOKBACK_DAYS
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: FULL_BASELINE_LOOKBACK_DAYS
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+# Updates Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smart-milk-updates-service
+  labels:
+    app: smart-milk-updates-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smart-milk-updates-service
+  template:
+    metadata:
+      labels:
+        app: smart-milk-updates-service
+    spec:
+      containers:
+      - name: updates-service
+        image: smart-milk/updates-service:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: MQTT_HOST
+          value: "smart-milk-mosquitto-service"
+        - name: MQTT_PORT
+          value: "1883"
+        - name: MQTT_TOPIC
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MQTT_TOPIC
+        - name: MYSQL_HOST
+          value: "smart-milk-mysql-service"
+        - name: MYSQL_PORT
+          value: "3306"
+        - name: MYSQL_DB
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MYSQL_DATABASE
+        - name: MYSQL_USER
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MYSQL_USER
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: smart-milk-secrets
+              key: MYSQL_PASSWORD
+        - name: DEVICE_ID
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: DEVICE_ID
+        - name: ALERT_THRESHOLD
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: ALERT_THRESHOLD
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+---
+# Users Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smart-milk-users-service
+  labels:
+    app: smart-milk-users-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smart-milk-users-service
+  template:
+    metadata:
+      labels:
+        app: smart-milk-users-service
+    spec:
+      containers:
+      - name: users-service
+        image: smart-milk/users-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "3000"
+        - name: ALLOWED_ORIGINS
+          value: "http://localhost:30080"
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: smart-milk-secrets
+              key: JWT_SECRET
+        - name: DB_HOST
+          value: "smart-milk-mysql-service"
+        - name: DB_PORT
+          value: "3306"
+        - name: DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MYSQL_DATABASE
+        - name: DB_USER
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MYSQL_USER
+        - name: DB_PASS
+          valueFrom:
+            secretKeyRef:
+              name: smart-milk-secrets
+              key: MYSQL_PASSWORD
+        - name: MYSQL_HOST
+          value: "smart-milk-mysql-service"
+        - name: MYSQL_PORT
+          value: "3306"
+        - name: MYSQL_DB
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MYSQL_DATABASE
+        - name: MYSQL_USER
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: MYSQL_USER
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: smart-milk-secrets
+              key: MYSQL_PASSWORD
+        - name: DEVICE_ID
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: DEVICE_ID
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+# Frontend App
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smart-milk-myapp
+  labels:
+    app: smart-milk-myapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: smart-milk-myapp
+  template:
+    metadata:
+      labels:
+        app: smart-milk-myapp
+    spec:
+      containers:
+      - name: myapp
+        image: smart-milk/myapp:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+        env:
+        - name: VITE_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: VITE_API_URL
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+---
+# ===== SERVICES =====
+# MySQL Service (internal only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-milk-mysql-service
+spec:
+  selector:
+    app: smart-milk-mysql
+  ports:
+  - protocol: TCP
+    port: 3306
+    targetPort: 3306
+  type: ClusterIP
+---
+# Mosquitto Service (internal only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-milk-mosquitto-service
+spec:
+  selector:
+    app: smart-milk-mosquitto
+  ports:
+  - protocol: TCP
+    port: 1883
+    targetPort: 1883
+  type: ClusterIP
+---
+# Users Service (internal only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-milk-users-service
+spec:
+  selector:
+    app: smart-milk-users-service
+  ports:
+  - protocol: TCP
+    port: 3000
+    targetPort: 3000
+  type: ClusterIP
+---
+# Frontend App Service (internal only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-milk-myapp-service
+spec:
+  selector:
+    app: smart-milk-myapp
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+  type: ClusterIP
+---
+# ===== EXTERNAL ACCESS SERVICES =====
+# For local development - these expose services outside the cluster
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-milk-mysql-external
+spec:
+  selector:
+    app: smart-milk-mysql
+  ports:
+  - protocol: TCP
+    port: 3306
+    targetPort: 3306
+    nodePort: 30306
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-milk-mosquitto-external
+spec:
+  selector:
+    app: smart-milk-mosquitto
+  ports:
+  - protocol: TCP
+    port: 1883
+    targetPort: 1883
+    nodePort: 31883
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-milk-users-external
+spec:
+  selector:
+    app: smart-milk-users-service
+  ports:
+  - protocol: TCP
+    port: 3000
+    targetPort: 3000
+    nodePort: 30000
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-milk-myapp-external
+spec:
+  selector:
+    app: smart-milk-myapp
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+    nodePort: 30080
+  type: NodePort
+---
+# Add this service to expose users service on port 3001
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-milk-users-3001
+spec:
+  selector:
+    app: smart-milk-users-service
+  ports:
+  - protocol: TCP
+    port: 3000
+    targetPort: 3000
+    nodePort: 30001
+  type: NodePort
+

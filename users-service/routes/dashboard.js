@@ -2,58 +2,67 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database/connection');
 
-router.get('/status', async (req, res) => {
+// Change from GET to POST to send user ID in body
+router.post('/status', async (req, res) => {
   try {
-    console.log('Testing dashboard endpoint...');
+    const { userId } = req.body;
     
-    // First, let's see what tables exist
-    const tables = await db.query(`
-      SELECT TABLE_NAME 
-      FROM INFORMATION_SCHEMA.TABLES 
-      WHERE TABLE_SCHEMA = DATABASE()
-    `);
+    if (!userId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'User ID is required' 
+      });
+    }
     
-    console.log('Available tables:', tables);
+    console.log(`Dashboard request for user ID: ${userId}`);
     
-    // Check if user_stats table exists and what columns it has
-    const userStatsColumns = await db.query(`
-      SELECT COLUMN_NAME, DATA_TYPE 
-      FROM INFORMATION_SCHEMA.COLUMNS 
-      WHERE TABLE_SCHEMA = DATABASE() 
-      AND TABLE_NAME = 'user_stats'
-    `);
+    // Get user's device_id first
+    const userDevice = await db.query(`
+      SELECT device_id FROM users 
+      WHERE id = ?
+    `, [userId]);
     
-    console.log('User stats columns:', userStatsColumns);
+    if (!userDevice.length) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
     
-    // Check if weight_data table exists and what columns it has
-    const weightDataColumns = await db.query(`
-      SELECT COLUMN_NAME, DATA_TYPE 
-      FROM INFORMATION_SCHEMA.COLUMNS 
-      WHERE TABLE_SCHEMA = DATABASE() 
-      AND TABLE_NAME = 'weight_data'
-    `);
+    const deviceId = userDevice[0].device_id;
     
-    console.log('Weight data columns:', weightDataColumns);
+    // Get user-specific stats
+    const userStats = await db.query(`
+      SELECT * FROM user_stats 
+      WHERE user_id = ?
+    `, [userId]);
     
-    // For now, return a simple response with debug info
+    // Get latest weight data for this user's device
+    const weightData = await db.query(`
+      SELECT * FROM weight_data 
+      WHERE device_id = ? 
+      ORDER BY timestamp DESC 
+      LIMIT 1
+    `, [deviceId]);
+    
+    // Calculate user-specific metrics
+    const currentWeight = weightData[0]?.weight || 0;
+    const userStat = userStats[0] || {};
+    
     const result = {
-      currentMilkAmount: 0,
-      milkExpiryDate: null,
-      coffeeCupsLeft: 0,
-      averageDailyConsumption: 0,
-      expectedMilkEndDay: null,
-      expectedMilkEndDate: null,
-      isWeightSensorActive: false,
-      weightSensorSerialNumber: null,
-      percentFull: 0,
-      debug: {
-        tablesFound: tables,
-        userStatsColumns: userStatsColumns,
-        weightDataColumns: weightDataColumns
-      }
+      success: true,
+      userId: parseInt(userId),
+      deviceId: deviceId,
+      currentMilkAmount: currentWeight,
+      milkExpiryDate: userStat.expiry_date || null,
+      coffeeCupsLeft: userStat.cups_left || 0,
+      averageDailyConsumption: userStat.avg_daily_consumption_g || 0,
+      expectedMilkEndDay: userStat.expected_empty_date || null,
+      percentFull: userStat.percent_full || 0,
+      isWeightSensorActive: currentWeight > 0,
+      lastUpdated: weightData[0]?.timestamp || null
     };
 
-    console.log('Dashboard result:', result);
     res.json(result);
     
   } catch (error) {
@@ -61,7 +70,6 @@ router.get('/status', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       error: error.message,
-      stack: error.stack,
       details: 'Database query failed'
     });
   }

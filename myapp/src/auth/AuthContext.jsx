@@ -7,16 +7,14 @@ export function useAuth() { return useContext(AuthContext); }
 
 // לקוח API עם cookies
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:3001",
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:30000",
   withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem("auth_user");
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   // הרשמה — חובה username + email + password
   const register = async ({ username, email, password, full_name = null }) => {
@@ -39,36 +37,35 @@ export function AuthProvider({ children }) {
   };
 
   // התחברות — רק username + password
-  const login = async (username, password) => {
-    if (!username || !password) {
-      return { ok: false, error: "username ו-password הם חובה" };
-    }
+  const login = async (credentials) => {
     try {
-      const { data } = await api.post("/auth/login", {
-        username: String(username).trim(),
-        password,
-      });
-      // השרת יוצר סשן (קוקי httpOnly); שומרים info קל ל-UI
-      const u = {
-        id: data.user.id,
-        username: data.user.username,
-        email: data.user.email ?? null,
-        full_name: data.user.full_name ?? null,
-      };
-      setUser(u);
-      localStorage.setItem("auth_user", JSON.stringify(u));
-      return { ok: true };
-    } catch (e) {
-      const msg = e.response?.data?.message || "שם משתמש או סיסמה שגויים";
-      return { ok: false, error: msg };
+      // ✅ credentials should be {username: "...", password: "..."}
+      const response = await api.post('/auth/login', credentials);
+      
+      if (response.data.success) {
+        const userData = {
+          id: response.data.user.id,
+          username: response.data.user.username,
+          email: response.data.user.email,
+          full_name: response.data.user.full_name
+        };
+        
+        setUser(userData);
+        localStorage.setItem('user', JSON.stringify(userData));
+        return { ok: true };
+      } else {
+        return { ok: false, error: response.data.message };
+      }
+    } catch (error) {
+      return { ok: false, error: error.response?.data?.message || 'Login failed' };
     }
   };
 
   // התנתקות — מוחקת סשן בצד השרת ומנקה State
-  const logout = async () => {
-    try { await api.post("/auth/logout"); } catch { /* לא חוסם UI */ }
+  const logout = () => {
     setUser(null);
-    localStorage.removeItem("auth_user");
+    localStorage.removeItem('user');
+    // You can also call the logout API endpoint here
   };
 
   return (
