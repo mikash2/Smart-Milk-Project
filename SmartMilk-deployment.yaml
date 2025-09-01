@@ -14,7 +14,7 @@ data:
   CUP_DEFAULT_G: "60"
   MIN_DAYS_FOR_AVG: "2"
   FULL_BASELINE_LOOKBACK_DAYS: "0"
-  VITE_API_URL: "http://smart-milk.local/api"
+  VITE_API_URL: "http://localhost:30000"
 ---
 apiVersion: v1
 kind: Secret
@@ -26,6 +26,7 @@ data:
   MYSQL_PASSWORD: TWlsazEyMyE=        # Milk123! in base64
   JWT_SECRET: cGxlYXNlX2NoYW5nZV9tZQ==  # please_change_me in base64
 ---
+# MySQL Database
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -88,6 +89,7 @@ spec:
         configMap:
           name: mysql-init-config
 ---
+# MySQL Init ConfigMap
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -147,6 +149,7 @@ data:
       DEFAULT CHARSET=utf8mb4
       COLLATE=utf8mb4_unicode_ci;
 ---
+# MySQL PVC
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -158,6 +161,7 @@ spec:
     requests:
       storage: 1Gi
 ---
+# Mosquitto MQTT Broker
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -199,6 +203,7 @@ spec:
         persistentVolumeClaim:
           claimName: mosquitto-pvc
 ---
+# Mosquitto Config
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -210,6 +215,7 @@ data:
     persistence true
     persistence_location /mosquitto/data/
 ---
+# Mosquitto PVC
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -221,6 +227,7 @@ spec:
     requests:
       storage: 100Mi
 ---
+# Weight Service
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -259,6 +266,7 @@ spec:
             memory: "128Mi"
             cpu: "100m"
 ---
+# Analysis Service
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -353,6 +361,7 @@ spec:
             memory: "256Mi"
             cpu: "200m"
 ---
+# Updates Service
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -422,6 +431,7 @@ spec:
             memory: "128Mi"
             cpu: "100m"
 ---
+# Users Service
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -450,7 +460,7 @@ spec:
         - name: PORT
           value: "3000"
         - name: ALLOWED_ORIGINS
-          value: "http://smart-milk.local"
+          value: "http://localhost:30080"
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
@@ -475,7 +485,6 @@ spec:
             secretKeyRef:
               name: smart-milk-secrets
               key: MYSQL_PASSWORD
-        # also expose MYSQL_* if your code uses those names
         - name: MYSQL_HOST
           value: "smart-milk-mysql-service"
         - name: MYSQL_PORT
@@ -508,6 +517,7 @@ spec:
             memory: "256Mi"
             cpu: "200m"
 ---
+# Frontend App
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -544,6 +554,8 @@ spec:
             memory: "128Mi"
             cpu: "100m"
 ---
+# ===== SERVICES =====
+# MySQL Service (internal only)
 apiVersion: v1
 kind: Service
 metadata:
@@ -557,6 +569,7 @@ spec:
     targetPort: 3306
   type: ClusterIP
 ---
+# Mosquitto Service (internal only)
 apiVersion: v1
 kind: Service
 metadata:
@@ -570,6 +583,7 @@ spec:
     targetPort: 1883
   type: ClusterIP
 ---
+# Users Service (internal only)
 apiVersion: v1
 kind: Service
 metadata:
@@ -583,6 +597,7 @@ spec:
     targetPort: 3000
   type: ClusterIP
 ---
+# Frontend App Service (internal only)
 apiVersion: v1
 kind: Service
 metadata:
@@ -596,47 +611,77 @@ spec:
     targetPort: 80
   type: ClusterIP
 ---
-# UI ingress (no rewrite needed)
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: smart-milk-ui-ingress
-  annotations:
-    kubernetes.io/ingress.class: nginx
-spec:
-  ingressClassName: nginx
-  rules:
-  - host: smart-milk.local
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: smart-milk-myapp-service
-            port:
-              number: 80
-
+# ===== EXTERNAL ACCESS SERVICES =====
+# For local development - these expose services outside the cluster
 ---
-# API ingress (strip /api when sending to Node :3000)
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: v1
+kind: Service
 metadata:
-  name: smart-milk-api-ingress
-  annotations:
-    nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
+  name: smart-milk-mysql-external
 spec:
-  ingressClassName: nginx
-  rules:
-  - host: smart-milk.local
-    http:
-      paths:
-      - path: /api(/|$)(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: smart-milk-users-service
-            port:
-              number: 3000
+  selector:
+    app: smart-milk-mysql
+  ports:
+  - protocol: TCP
+    port: 3306
+    targetPort: 3306
+    nodePort: 30306
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-milk-mosquitto-external
+spec:
+  selector:
+    app: smart-milk-mosquitto
+  ports:
+  - protocol: TCP
+    port: 1883
+    targetPort: 1883
+    nodePort: 31883
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-milk-users-external
+spec:
+  selector:
+    app: smart-milk-users-service
+  ports:
+  - protocol: TCP
+    port: 3000
+    targetPort: 3000
+    nodePort: 30000
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-milk-myapp-external
+spec:
+  selector:
+    app: smart-milk-myapp
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+    nodePort: 30080
+  type: NodePort
+---
+# Add this service to expose users service on port 3001
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-milk-users-3001
+spec:
+  selector:
+    app: smart-milk-users-service
+  ports:
+  - protocol: TCP
+    port: 3000
+    targetPort: 3000
+    nodePort: 30001
+  type: NodePort
 

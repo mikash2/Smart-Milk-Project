@@ -2,7 +2,7 @@
 import axios from "axios";
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:3001",
+  baseURL: "http://localhost:30000", // Fixed NodePort URL
   withCredentials: true, // שולח/מקבל קוקיז (sid)
   headers: { "Content-Type": "application/json" },
 });
@@ -20,8 +20,7 @@ export const logout = () => api.post("/auth/logout");
 export const me = () => api.get("/me"); // החזר { id, username, ... }
 
 // ===== Dashboard =====
-// נתוני הדאשבורד עבור המשתמש המחובר
-export const getDashboard = () => api.get("/dashboard/status");
+export const getDashboard = (userId) => api.post("/dashboard/status", { userId });
 // החזרה צפויה:
 // {
 //   metrics: {
