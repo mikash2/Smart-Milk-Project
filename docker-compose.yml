@@ -61,6 +61,8 @@ services:
 
   updates-service:
     build: ./updates-service
+    env_file:
+      - ./.env     
     environment:
       # MQTT
       MQTT_HOST: mqtt
