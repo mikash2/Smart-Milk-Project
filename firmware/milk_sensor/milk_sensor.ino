@@ -3,10 +3,10 @@
 #include "HX711.h"
 
 // ===== USER CONFIG =====
-const char* ssid        = "Home";
-const char* password    = "10203040";
-// Set to your PC's LAN IP (where Docker runs Mosquitto)
-const char* mqtt_server = "192.168.1.188";
+const char* ssid        = "Mika";
+const char* password    = "0542124098";
+// Change this to your Kubernetes cluster IP
+const char* mqtt_server = "192.168.1.188";  // Your PC's IP where Kubernetes runs
 const int   mqtt_port   = 1883;
 const char* mqtt_topic  = "milk/weight";   // or "milk/weight/device1"
 const char* device_id   = "device1";       // must exist in DB 'clients'

@@ -1,10 +1,12 @@
 import paho.mqtt.client as mqtt
 import time
 import random  # For simulation, replace with actual HX711 code
+import os  # Add this import
 
-MQTT_HOST = "mqtt"
-MQTT_PORT = 1883
-MQTT_TOPIC = "milk/weight"
+# Use environment variables instead of hardcoded values
+MQTT_HOST = os.getenv("MQTT_HOST", "smart-milk-mosquitto-service")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_TOPIC = os.getenv("MQTT_TOPIC", "milk/weight")
 
 client = mqtt.Client()
 
@@ -12,7 +14,7 @@ def connect_mqtt():
     while True:
         try:
             client.connect(MQTT_HOST, MQTT_PORT)
-            print("Connected to MQTT Broker!")
+            print(f"Connected to MQTT Broker at {MQTT_HOST}:{MQTT_PORT}!")
             return
         except Exception as e:
             print(f"Connection failed: {e}, retrying...")
