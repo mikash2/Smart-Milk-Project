@@ -1,8 +1,10 @@
 import paho.mqtt.client as mqtt
 import os, time, json
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 import mysql.connector
+import smtplib
+import ssl
 
 # =========================
 # Config (env with defaults)
