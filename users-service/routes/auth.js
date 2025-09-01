@@ -7,7 +7,7 @@ const db = require('../database/connection');
 
 // User registration
 router.post('/register', async (req, res) => {
-  const { username, password, email, full_name } = req.body || {};
+  const { username, password, email, full_name, device_id } = req.body || {};
 
   if (!username || !password || !email) {
     return res.status(400).json({ success: false, message: 'username, password and email are required' });
@@ -15,8 +15,9 @@ router.post('/register', async (req, res) => {
 
   const uname = String(username).trim();
   const emailLower = String(email).toLowerCase().trim();
+  const deviceId = (device_id && String(device_id).trim()) || process.env.DEVICE_ID || 'device1';
 
-  // ולידציה בסיסית
+  // basic validation
   if (!/^[a-zA-Z0-9._-]{3,100}$/.test(uname)) {
     return res.status(400).json({ success: false, message: 'invalid username (3-100 chars, letters/digits/._-)' });
   }
@@ -26,20 +27,20 @@ router.post('/register', async (req, res) => {
   }
 
   try {
-    // ייחודיות
+    // uniqueness
     const [uTaken] = await db.query('SELECT 1 FROM `users` WHERE `username` = ? LIMIT 1', [uname]);
     if (uTaken) return res.status(409).json({ success: false, message: 'Username already taken' });
 
     const [eTaken] = await db.query('SELECT 1 FROM `users` WHERE `email` = ? LIMIT 1', [emailLower]);
     if (eTaken) return res.status(409).json({ success: false, message: 'Email already registered' });
 
-    // הוספה
+    // insert (now passing 5 params for 5 columns, including device_id)
     const result = await db.query(
-      'INSERT INTO `users` (`username`,`password`,`email`,`full_name`) VALUES (?,?,?,?)',
-      [uname, password, emailLower, full_name || null]
+      'INSERT INTO `users` (`username`,`password`,`email`,`full_name`,`device_id`) VALUES (?,?,?,?,?)',
+      [uname, password, emailLower, full_name || null, deviceId]
     );
 
-    return res.status(201).json({ success: true, user_id: result.insertId, username: uname });
+    return res.status(201).json({ success: true, user_id: result.insertId, username: uname, device_id: deviceId });
   } catch (e) {
     console.error('REGISTER error:', {
       code: e.code, errno: e.errno, sqlState: e.sqlState,
