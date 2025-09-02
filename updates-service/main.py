@@ -105,7 +105,9 @@ def parse_payload(msg_bytes: bytes):
 # =========================
 # Email sending
 # =========================
-def send_email_alert(to_email: str, full_name: str | None, weight_g: float):
+from typing import Optional
+
+def send_email_alert(to_email: str, full_name: Optional[str], weight_g: float):
     subject = "Smart Milk: Low Milk Alert"
     body = (
         f"Hi {full_name or 'there'},\n\n"

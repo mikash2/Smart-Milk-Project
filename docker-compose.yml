@@ -94,6 +94,9 @@ services:
         condition: service_healthy
       mqtt:
         condition: service_started
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     # restart: unless-stopped
 
   users-service:
