@@ -18,6 +18,7 @@ MYSQL_CONFIG = {
     "user":     os.getenv("MYSQL_USER", "milkuser"),
     "password": os.getenv("MYSQL_PASSWORD", "Milk123!"),
     "database": os.getenv("MYSQL_DB", os.getenv("MYSQL_DATABASE", "users_db")),
+    "autocommit": True,
 }
 
 # schema maps device_id → users(device_id)
@@ -113,7 +114,7 @@ def insert_weight(conn, device_id: str, weight: float, ts: datetime):
         "INSERT INTO weight_data (device_id, weight, timestamp) VALUES (%s, %s, %s)",
         (device_id, float(weight), ts)
     )
-    conn.commit()
+    # No need to commit since autocommit=True
     cur.close()
 
 # ======= Analytics =======
@@ -265,57 +266,162 @@ def upsert_user_stats(conn, user_id: int, device_id: str,
 
 # ======= Save flow =======
 def save_weight(weight: float):
-    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    print(f"[analysis] Attempting to save weight: {weight}g")
     try:
-        init_tables(conn)
-
-        user_id = get_user_id_by_device(conn, DEVICE_ID)
-        if user_id is None:
+        # Create a fresh connection for each operation
+        conn = mysql.connector.connect(**MYSQL_CONFIG)
+        print("[analysis] Connected to MySQL")
+        
+        # Get user ID
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM users WHERE device_id = %s LIMIT 1", (DEVICE_ID,))
+        user_result = cur.fetchone()
+        cur.close()
+        
+        if not user_result:
             print(f"[analysis] No user with device_id='{DEVICE_ID}' – skipping insert.")
             conn.close()
             return
-
-        now = datetime.now()
-        # 1) Save the raw reading
-        insert_weight(conn, DEVICE_ID, weight, now)
-
-        # 2) Compute analytics
+        
+        user_id = user_result[0]
         current_amount_g = float(weight)
-
-        avg_daily_g = robust_average_daily_consumption(conn, DEVICE_ID)  # None until enough full days
-        cup_g       = estimate_avg_cup_grams(conn, DEVICE_ID)            # has fallback
-        cups_left   = (current_amount_g / cup_g) if cup_g > 0 else None
-
-        baseline_g  = compute_full_baseline_g(conn, DEVICE_ID)
-        percent_full = (100.0 * current_amount_g / baseline_g) if (baseline_g and baseline_g > 0) else None
-
-        expected_empty_date = None
-        if avg_daily_g and avg_daily_g > 0:
-            days_left = current_amount_g / avg_daily_g
-            # Use ceil to be user-friendly (earlier estimate)
-            target_days = int(math.ceil(days_left))
-            # Clamp extremely large horizons (sanity)
-            if 0 < target_days <= 365 * 5:
-                expected_empty_date = (now + timedelta(days=target_days)).date()
-
-        # 3) Upsert user_stats (NEW schema only)
-        upsert_user_stats(
-            conn, user_id, DEVICE_ID,
-            current_amount_g=current_amount_g,
-            avg_daily_g=avg_daily_g,
-            cups_left=cups_left,
-            percent_full=percent_full,
-            expected_empty_date=expected_empty_date
+        
+        # Insert weight data with precise timestamp (ignore duplicates)
+        cur = conn.cursor()
+        now = datetime.now()
+        cur.execute(
+            "INSERT IGNORE INTO weight_data (device_id, weight, timestamp) VALUES (%s, %s, %s)",
+            (DEVICE_ID, current_amount_g, now)
         )
-
-        print("[analysis] Saved to MySQL ✅")
+        cur.close()
+        
+        # Calculate intelligent analytics
+        percent_full = min(100.0, (current_amount_g / 1000.0) * 100)  # Assume 1000g is full
+        
+        # Get learned cup size from recent weight drops
+        learned_cup_size = calculate_learned_cup_size(conn, DEVICE_ID)
+        cups_left = current_amount_g / learned_cup_size if learned_cup_size > 0 else 0
+        
+        # Get learned daily consumption
+        learned_daily_consumption = calculate_learned_daily_consumption(conn, DEVICE_ID)
+        
+        # Calculate days left until empty
+        days_left = current_amount_g / learned_daily_consumption if learned_daily_consumption > 0 else None
+        expected_empty_date = None
+        if days_left is not None and days_left > 0:
+            expected_empty_date = datetime.now().date() + timedelta(days=int(days_left))
+        
+        # Update user_stats
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO user_stats (
+                user_id, container_id, current_amount_g, avg_daily_consumption_g,
+                cups_left, percent_full, expected_empty_date
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                current_amount_g=VALUES(current_amount_g),
+                avg_daily_consumption_g=VALUES(avg_daily_consumption_g),
+                cups_left=VALUES(cups_left),
+                percent_full=VALUES(percent_full)
+        """, (
+            user_id, DEVICE_ID, current_amount_g, learned_daily_consumption,
+            cups_left, percent_full, expected_empty_date
+        ))
+        cur.close()
+        
+        print(f"[analysis] Analytics: cups_left={cups_left:.1f}, percent_full={percent_full:.1f}%, learned_cup_size={learned_cup_size:.1f}g, learned_daily={learned_daily_consumption:.1f}g, days_left={days_left:.1f}")
+        print("[analysis] Successfully saved weight and analytics to MySQL ✅")
+        conn.close()
+        
     except Exception as e:
         print(f"[analysis] Error saving to MySQL: {e}")
-    finally:
         try:
             conn.close()
-        except Exception:
+        except:
             pass
+
+def calculate_learned_cup_size(conn, device_id: str) -> float:
+    """
+    Calculate average cup size by analyzing weight drops in the last 7 days.
+    A weight drop is detected when weight decreases significantly between readings.
+    """
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT weight, timestamp 
+            FROM weight_data 
+            WHERE device_id = %s 
+            AND timestamp >= (NOW() - INTERVAL 7 DAY)
+            ORDER BY timestamp ASC
+        """, (device_id,))
+        weights = cur.fetchall()
+        cur.close()
+        
+        if len(weights) < 2:
+            return 60.0  # Default if not enough data
+        
+        # Calculate weight drops (when user pours coffee)
+        drops = []
+        for i in range(1, len(weights)):
+            current_weight = float(weights[i][0])
+            previous_weight = float(weights[i-1][0])
+            drop = previous_weight - current_weight
+            
+            # Filter for realistic coffee cup sizes (25g to 350g)
+            if 25 <= drop <= 350:
+                drops.append(drop)
+        
+        if not drops:
+            return 60.0  # Default if no valid drops found
+        
+        # Calculate average cup size from drops
+        avg_cup_size = sum(drops) / len(drops)
+        print(f"[analysis] Learned cup size: {avg_cup_size:.1f}g from {len(drops)} pours")
+        return avg_cup_size
+        
+    except Exception as e:
+        print(f"[analysis] Error calculating cup size: {e}")
+        return 60.0  # Default fallback
+
+def calculate_learned_daily_consumption(conn, device_id: str) -> float:
+    """
+    Calculate average daily consumption by analyzing daily weight changes.
+    """
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT DATE(timestamp) as date, 
+                   MAX(weight) as max_weight,
+                   MIN(weight) as min_weight
+            FROM weight_data 
+            WHERE device_id = %s 
+            AND timestamp >= (NOW() - INTERVAL 7 DAY)
+            GROUP BY DATE(timestamp)
+            HAVING COUNT(*) > 1
+        """, (device_id,))
+        daily_data = cur.fetchall()
+        cur.close()
+        
+        if not daily_data:
+            return 200.0  # Default if no data
+        
+        # Calculate daily consumption (max - min for each day)
+        daily_consumptions = []
+        for date, max_weight, min_weight in daily_data:
+            consumption = float(max_weight) - float(min_weight)
+            if consumption > 0:  # Only count positive consumption
+                daily_consumptions.append(consumption)
+        
+        if not daily_consumptions:
+            return 200.0  # Default if no valid consumption data
+        
+        avg_daily = sum(daily_consumptions) / len(daily_consumptions)
+        print(f"[analysis] Learned daily consumption: {avg_daily:.1f}g from {len(daily_consumptions)} days")
+        return avg_daily
+        
+    except Exception as e:
+        print(f"[analysis] Error calculating daily consumption: {e}")
+        return 200.0  # Default fallback
 
 # ======= MQTT callbacks =======
 def on_connect(client, userdata, flags, rc, properties=None):
