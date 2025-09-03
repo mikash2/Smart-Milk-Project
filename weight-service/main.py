@@ -2,7 +2,7 @@ import paho.mqtt.client as mqtt
 import time
 import random  # For simulation, replace with actual HX711 code
 
-MQTT_HOST = "mqtt"
+MQTT_HOST = "smart-milk-mosquitto-service"
 MQTT_PORT = 1883
 MQTT_TOPIC = "milk/weight"
 
