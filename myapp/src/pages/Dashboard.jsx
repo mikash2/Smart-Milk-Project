@@ -23,23 +23,33 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const fetchDashboard = async () => {
-      try {
-        setLoading(true);
-        const response = await getDashboard(user?.id);
-        if (response.data.success) {
-          setDashboardData(response.data);
-        } else {
-          setError(response.data.message || "שגיאה בטעינת הדשבורד");
-        }
-      } catch (err) {
-        setError(err.response?.data?.message || "שגיאה בטעינת הדשבורד");
-      } finally {
-        setLoading(false);
+  const fetchDashboard = async () => {
+    try {
+      const response = await getDashboard(user?.id);
+      if (response.data.success) {
+        setDashboardData(response.data);
+        setError(null);
+      } else {
+        setError(response.data.message || "שגיאה בטעינת הדשבורד");
       }
-    };
-    if (user?.id) fetchDashboard();
+    } catch (err) {
+      setError(err.response?.data?.message || "שגיאה בטעינת הדשבורד");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user?.id) {
+      // Initial fetch
+      fetchDashboard();
+      
+      // Auto-refresh every 2 seconds
+      const interval = setInterval(fetchDashboard, 2000);
+      
+      // Cleanup interval on component unmount
+      return () => clearInterval(interval);
+    }
   }, [user]);
 
   const handleLogout = () => {
