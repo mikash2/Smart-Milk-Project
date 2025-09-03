@@ -14,7 +14,7 @@ data:
   CUP_DEFAULT_G: "60"
   MIN_DAYS_FOR_AVG: "2"
   FULL_BASELINE_LOOKBACK_DAYS: "0"
-  VITE_API_URL: "http://localhost:30000"
+  VITE_API_URL: "http://localhost:30001"
 ---
 apiVersion: v1
 kind: Secret
@@ -684,4 +684,18 @@ spec:
     targetPort: 3000
     nodePort: 30001
   type: NodePort
+---
+# Add missing service for weight-service
+apiVersion: v1
+kind: Service
+metadata:
+  name: smart-milk-weight-service
+spec:
+  selector:
+    app: smart-milk-weight-service
+  ports:
+  - protocol: TCP
+    port: 1883
+    targetPort: 1883
+  type: ClusterIP
 
