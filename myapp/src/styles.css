@@ -2,8 +2,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;700;800&display=swap');
 
 :root {
-  --bg: #0f172a;           /* slate-900 */
-  --bg-2: #111827;         /* gray-900 */
+  --bg: #df75c4;           /* slate-900 */
+  --bg-2: #ec4dbd;         /* gray-900 */
   --card: #111827;         /* gray-900 */
   --muted: #94a3b8;        /* slate-400 */
   --text: #e5e7eb;         /* gray-200 */
@@ -53,11 +53,19 @@ body {
     linear-gradient(180deg, var(--bg), var(--bg-2));
 }
 
-/* ====== Dashboard Styles ====== */
-.dashboard {
-  min-height: 100vh;
-  background: var(--bg);
+/* Override index.css centering for dashboard */
+body.dashboard-page {
+  display: block !important;
+  place-items: initial !important;
 }
+
+.dashboard {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
 
 /* Header Styles */
 .dashboard-header {
