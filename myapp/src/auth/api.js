@@ -1,8 +1,11 @@
 // src/auth/api.js
 import axios from "axios";
 
+// Use environment variable or default to K8s port
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:30001";
+
 export const api = axios.create({
-  baseURL: "http://localhost:30000", // Fixed NodePort URL
+  baseURL: API_URL, // Use environment variable
   withCredentials: true, // שולח/מקבל קוקיז (sid)
   headers: { "Content-Type": "application/json" },
 });

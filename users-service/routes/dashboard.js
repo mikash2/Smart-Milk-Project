@@ -46,20 +46,19 @@ router.post('/status', async (req, res) => {
     `, [deviceId]);
     
     // Calculate user-specific metrics
-    const currentWeight = weightData[0]?.weight || 0;
     const userStat = userStats[0] || {};
     
+    // Use stored values instead of recalculating
     const result = {
       success: true,
       userId: parseInt(userId),
       deviceId: deviceId,
-      currentMilkAmount: currentWeight,
-      milkExpiryDate: userStat.expiry_date || null,
+      currentMilkAmount: userStat.current_amount_g || 0,  // Use stored value
       coffeeCupsLeft: userStat.cups_left || 0,
       averageDailyConsumption: userStat.avg_daily_consumption_g || 0,
       expectedMilkEndDay: userStat.expected_empty_date || null,
-      percentFull: userStat.percent_full || 0,
-      isWeightSensorActive: currentWeight > 0,
+      percentFull: userStat.percent_full || 0,  // Use stored value
+      isWeightSensorActive: (userStat.current_amount_g || 0) > 0,
       lastUpdated: weightData[0]?.timestamp || null
     };
 
