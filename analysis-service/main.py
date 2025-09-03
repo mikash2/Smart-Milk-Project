@@ -262,22 +262,24 @@ def save_weight(weight: float):
         
         # Get learned cup size from recent weight drops
         learned_cup_size = calculate_learned_cup_size(conn, DEVICE_ID)
-        cups_left = current_amount_g / learned_cup_size if learned_cup_size > 0 else 0
+        cups_left = math.floor(current_amount_g / learned_cup_size) if learned_cup_size > 0 else 0
         
         # Get learned daily consumption
         learned_daily_consumption = calculate_learned_daily_consumption(conn, DEVICE_ID)
         
         # Calculate days left until empty
-        days_left = current_amount_g / learned_daily_consumption if learned_daily_consumption > 0 else None
         expected_empty_date = None
-        if days_left is not None and days_left > 0:
-            expected_empty_date = datetime.now().date() + timedelta(days=int(days_left))
+        if learned_daily_consumption > 0 and current_amount_g > 0:
+            days_left = current_amount_g / learned_daily_consumption
+            if days_left > 0:
+                expected_empty_date = datetime.now().date() + timedelta(days=int(days_left))
+                print(f"[analysis] Expected empty date: {expected_empty_date} (in {days_left:.1f} days)")
         
         # Update user_stats using device_id (container_id)
         upsert_user_stats(conn, DEVICE_ID, current_amount_g, learned_daily_consumption,
                          cups_left, percent_full, expected_empty_date)
         
-        print(f"[analysis] Analytics: cups_left={cups_left:.1f}, percent_full={percent_full:.1f}%, learned_cup_size={learned_cup_size:.1f}g, learned_daily={learned_daily_consumption:.1f}g, days_left={days_left:.1f}")
+        print(f"[analysis] Analytics: cups_left={cups_left} (rounded down), percent_full={percent_full:.1f}%, learned_cup_size={learned_cup_size:.1f}g, learned_daily={learned_daily_consumption:.1f}g, expected_empty_date={expected_empty_date}")
         print("[analysis] Successfully saved weight and analytics to MySQL ✅")
         conn.close()
         
