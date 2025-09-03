@@ -3,18 +3,41 @@ kind: ConfigMap
 metadata:
   name: smart-milk-config
 data:
+  # Database Configuration
   MYSQL_DATABASE: "users_db"
   MYSQL_USER: "milkuser"
+  MYSQL_PASSWORD: "Milk123!"
+  MYSQL_ROOT_PASSWORD: "lirazmika"
+  
+  # MQTT Configuration
   MQTT_TOPIC: "milk/weight"
   DEVICE_ID: "device1"
+  
+  # Alert Configuration
   ALERT_THRESHOLD: "200"
+  ALERT_COOLDOWN_MIN: "60"
+  
+  # Email Configuration
+  SMTP_HOST: "smtp.gmail.com"
+  SMTP_PORT: "587"
+  SMTP_USER: "smartmilk0@gmail.com"
+  SMTP_PASS: "anhj eyop wsxy iouh"
+  FROM_EMAIL: "Smart Milk <smartmilk0@gmail.com>"
+  DRY_RUN_EMAIL: "false"
+  
+  # Frontend Configuration
+  VITE_API_URL: "http://localhost:30001"
+  
+  # Analysis Service Configuration
   ANALYSIS_WINDOW_DAYS: "7"
   CUP_MIN_DROP_G: "25"
   CUP_MAX_DROP_G: "350"
   CUP_DEFAULT_G: "60"
   MIN_DAYS_FOR_AVG: "2"
   FULL_BASELINE_LOOKBACK_DAYS: "0"
-  VITE_API_URL: "http://localhost:30001"
+  
+  # JWT
+  JWT_SECRET: "please_change_me"
 ---
 apiVersion: v1
 kind: Secret
@@ -22,9 +45,11 @@ metadata:
   name: smart-milk-secrets
 type: Opaque
 data:
-  MYSQL_ROOT_PASSWORD: TWlsazEyMyE=  # Milk123! in base64
+  MYSQL_ROOT_PASSWORD: bGlyYXptaWth  # lirazmika in base64
   MYSQL_PASSWORD: TWlsazEyMyE=        # Milk123! in base64
   JWT_SECRET: cGxlYXNlX2NoYW5nZV9tZQ==  # please_change_me in base64
+  SMTP_USER: c21hcnRtaWxrMEBnbWFpbC5jb20=  # smartmilk0@gmail.com in base64
+  SMTP_PASS: YW5oaiBlb3Agd3N4eSBpb3Vo        # anhj eyop wsxy iouh in base64
 ---
 # MySQL Database
 apiVersion: apps/v1
@@ -383,6 +408,7 @@ spec:
         image: smart-milk/updates-service:latest
         imagePullPolicy: IfNotPresent
         env:
+        # MQTT Configuration
         - name: MQTT_HOST
           value: "smart-milk-mosquitto-service"
         - name: MQTT_PORT
@@ -392,6 +418,7 @@ spec:
             configMapKeyRef:
               name: smart-milk-config
               key: MQTT_TOPIC
+        # MySQL Configuration
         - name: MYSQL_HOST
           value: "smart-milk-mysql-service"
         - name: MYSQL_PORT
@@ -408,9 +435,10 @@ spec:
               key: MYSQL_USER
         - name: MYSQL_PASSWORD
           valueFrom:
-            secretKeyRef:
-              name: smart-milk-secrets
+            configMapKeyRef:
+              name: smart-milk-config
               key: MYSQL_PASSWORD
+        # Alert Configuration
         - name: DEVICE_ID
           valueFrom:
             configMapKeyRef:
@@ -421,6 +449,42 @@ spec:
             configMapKeyRef:
               name: smart-milk-config
               key: ALERT_THRESHOLD
+        - name: ALERT_COOLDOWN_MIN
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: ALERT_COOLDOWN_MIN
+        # Email Configuration
+        - name: SMTP_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: SMTP_HOST
+        - name: SMTP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: SMTP_PORT
+        - name: SMTP_USER
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: SMTP_USER
+        - name: SMTP_PASS
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: SMTP_PASS
+        - name: FROM_EMAIL
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: FROM_EMAIL
+        - name: DRY_RUN_EMAIL
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: DRY_RUN_EMAIL
         - name: PYTHONUNBUFFERED
           value: "1"
         resources:
