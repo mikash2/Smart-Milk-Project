@@ -1,0 +1,139 @@
+# weight-service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weight-service
+  namespace: smart-milk
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: weight-service } }
+  template:
+    metadata:
+      labels: { app: weight-service }
+    spec:
+      containers:
+        - name: weight
+          image: lirazp/weight-service:1.0
+          env:
+            - { name: MQTT_HOST,  value: "mqtt" }
+            - { name: MQTT_TOPIC, value: "milk/weight" }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weight-service
+  namespace: smart-milk
+spec:
+  selector: { app: weight-service }
+  ports: [{ port: 8080, targetPort: 8080 }]
+
+---
+# analysis-service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analysis-service
+  namespace: smart-milk
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: analysis-service } }
+  template:
+    metadata:
+      labels: { app: analysis-service }
+    spec:
+      containers:
+        - name: analysis
+          image: liraz/analysis-service:1.0
+          env:
+            - { name: MQTT_HOST,   value: "mqtt" }
+            - { name: MQTT_PORT,   value: "1883" }
+            - { name: MQTT_TOPIC,  value: "milk/weight" }
+            - { name: MYSQL_HOST,  value: "mysql" }
+            - { name: MYSQL_PORT,  value: "3306" }
+            - { name: MYSQL_DB,    valueFrom: { secretKeyRef: { name: mysql-secret, key: MYSQL_DATABASE } } }
+            - { name: MYSQL_USER,  valueFrom: { secretKeyRef: { name: mysql-secret, key: MYSQL_USER } } }
+            - { name: MYSQL_PASSWORD, valueFrom: { secretKeyRef: { name: mysql-secret, key: MYSQL_PASSWORD } } }
+            - { name: DEVICE_ID,   value: "device1" }
+            # Tunables:
+            - { name: ANALYSIS_WINDOW_DAYS, value: "7" }
+            - { name: MIN_DAYS_FOR_AVG, value: "2" }
+            - { name: CUP_MIN_DROP_G, value: "25" }
+            - { name: CUP_MAX_DROP_G, value: "350" }
+            - { name: CUP_DEFAULT_G, value: "60" }
+            - { name: FULL_BASELINE_LOOKBACK_DAYS, value: "0" }
+
+---
+# updates-service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: updates-service
+  namespace: smart-milk
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: updates-service } }
+  template:
+    metadata:
+      labels: { app: updates-service }
+    spec:
+      containers:
+        - name: updates
+          image: liraz/updates-service:1.0
+          env:
+            - { name: MQTT_HOST,  value: "mqtt" }
+            - { name: MQTT_PORT,  value: "1883" }
+            - { name: MQTT_TOPIC, value: "milk/weight" }
+            - { name: MYSQL_HOST, value: "mysql" }
+            - { name: MYSQL_PORT, value: "3306" }
+            - { name: MYSQL_DB,   valueFrom: { secretKeyRef: { name: mysql-secret, key: MYSQL_DATABASE } } }
+            - { name: MYSQL_USER, valueFrom: { secretKeyRef: { name: mysql-secret, key: MYSQL_USER } } }
+            - { name: MYSQL_PASSWORD, valueFrom: { secretKeyRef: { name: mysql-secret, key: MYSQL_PASSWORD } } }
+            - { name: DEVICE_ID,  value: "device1" }
+            - { name: ALERT_THRESHOLD, value: "200" }
+
+---
+# users-service (Node app) + Service + Ingress
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: users-service
+  namespace: smart-milk
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: users-service } }
+  template:
+    metadata:
+      labels: { app: users-service }
+    spec:
+      containers:
+        - name: users
+          image: smart-milk/users-service:1.1
+          ports: [{ containerPort: 3000 }]
+          env:
+            - { name: NODE_ENV, value: "development" }
+            - { name: PORT, value: "3000" }
+            - { name: ALLOWED_ORIGINS, value: "http://localhost:5173" }
+            - { name: JWT_SECRET, value: "please_change_me" }
+            - { name: MYSQL_HOST, value: "mysql" }
+            - { name: MYSQL_PORT, value: "3306" }
+            - { name: MYSQL_DB,   valueFrom: { secretKeyRef: { name: mysql-secret, key: MYSQL_DATABASE } } }
+            - { name: MYSQL_USER, valueFrom: { secretKeyRef: { name: mysql-secret, key: MYSQL_USER } } }
+            - { name: MYSQL_PASSWORD, valueFrom: { secretKeyRef: { name: mysql-secret, key: MYSQL_PASSWORD } } }
+            - { name: DB_HOST, value: "mysql" }
+            - { name: DB_PORT, value: "3306" }
+            - { name: DB_NAME, valueFrom: { secretKeyRef: { name: mysql-secret, key: MYSQL_DATABASE } } }
+            - { name: DB_USER, valueFrom: { secretKeyRef: { name: mysql-secret, key: MYSQL_USER } } }
+            - { name: DB_PASS, valueFrom: { secretKeyRef: { name: mysql-secret, key: MYSQL_PASSWORD } } }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: users-service
+  namespace: smart-milk
+spec:
+  selector: { app: users-service }
+  ports:
+    - port: 3000
+      targetPort: 3000
