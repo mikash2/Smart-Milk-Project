@@ -42,17 +42,13 @@ CREATE TABLE IF NOT EXISTS weight_data (
 -- === client_stats -> user_stats (סטטיסטיקות פר משתמש) ===================
 -- === user_stats (per-user live stats for Smart Milk) ===================
 CREATE TABLE IF NOT EXISTS user_stats (
-  user_id                     INT UNSIGNED NOT NULL,
   container_id                VARCHAR(128) NULL,  -- e.g., DEVICE_ID
   current_amount_g            FLOAT        NULL,  -- latest reading (grams)
   avg_daily_consumption_g     FLOAT        NULL,  -- avg (start_of_day - end_of_day) over recent days
   cups_left                   FLOAT        NULL,  -- current_amount_g / avg_cup_grams
   percent_full                FLOAT        NULL,  -- 0..100
   expected_empty_date         DATE         NULL,  -- projected run-out date
-
-  PRIMARY KEY (user_id),
-  CONSTRAINT fk_stats_user
-    FOREIGN KEY (user_id) REFERENCES users(id)
+  PRIMARY KEY (container_id) 
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci;

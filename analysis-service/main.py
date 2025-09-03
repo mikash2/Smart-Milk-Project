@@ -52,8 +52,7 @@ def get_user_id_by_device(conn, device_id: str):
 
 def init_tables(conn):
     """
-    Ensure weight_data exists and user_stats matches the NEW schema (only your requested columns).
-    Also attempts to drop legacy columns if they exist (MySQL 8+ will support IF EXISTS).
+    Ensure weight_data exists and user_stats matches the NEW schema (container_id as primary key).
     """
     cur = conn.cursor()
 
@@ -68,42 +67,18 @@ def init_tables(conn):
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     """)
 
-    # 2) user_stats (new schema only)
+    # 2) user_stats (NEW schema with container_id as primary key)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS user_stats (
-          user_id                     INT UNSIGNED NOT NULL,
-          container_id                VARCHAR(128) NULL,
-          current_amount_g            FLOAT        NULL,
-          avg_daily_consumption_g     FLOAT        NULL,
-          cups_left                   FLOAT        NULL,
-          percent_full                FLOAT        NULL,
-          expected_empty_date         DATE         NULL,
-          PRIMARY KEY (user_id),
-          CONSTRAINT fk_stats_user FOREIGN KEY (user_id) REFERENCES users(id)
+          container_id                VARCHAR(128) NOT NULL,  -- device_id as primary key
+          current_amount_g            FLOAT        NULL,      -- latest reading (grams)
+          avg_daily_consumption_g     FLOAT        NULL,      -- avg daily consumption
+          cups_left                   FLOAT        NULL,      -- current_amount_g / avg_cup_grams
+          percent_full                FLOAT        NULL,      -- 0..100
+          expected_empty_date         DATE         NULL,      -- projected run-out date
+          PRIMARY KEY (container_id)                          -- device_id is the primary key
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     """)
-
-    # If the table pre-existed, add missing new columns (MySQL 8+ syntax)
-    try:
-        cur.execute("""ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS container_id                VARCHAR(128) NULL;""")
-        cur.execute("""ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS current_amount_g            FLOAT        NULL;""")
-        cur.execute("""ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS avg_daily_consumption_g     FLOAT        NULL;""")
-        cur.execute("""ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS cups_left                   FLOAT        NULL;""")
-        cur.execute("""ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS percent_full                FLOAT        NULL;""")
-        cur.execute("""ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS expected_empty_date         DATE         NULL;""")
-    except Exception:
-        # On older MySQL, ignore; CREATE TABLE above already has the right columns for fresh setups.
-        pass
-
-    # Try to drop legacy columns if they still exist (safe-guard / idempotent)
-    try:
-        cur.execute("""ALTER TABLE user_stats DROP COLUMN IF EXISTS sample_count;""")
-        cur.execute("""ALTER TABLE user_stats DROP COLUMN IF EXISTS avg_weight;""")
-        cur.execute("""ALTER TABLE user_stats DROP COLUMN IF EXISTS min_weight;""")
-        cur.execute("""ALTER TABLE user_stats DROP COLUMN IF EXISTS last_updated;""")
-        # If your server is < 8.0 (no IF EXISTS), failing here is harmless.
-    except Exception:
-        pass
 
     conn.commit()
     cur.close()
@@ -235,30 +210,29 @@ def compute_full_baseline_g(conn, device_id: str) -> float | None:
     cur.close()
     return float(row[0]) if row and row[0] is not None else None
 
-def upsert_user_stats(conn, user_id: int, device_id: str,
+def upsert_user_stats(conn, device_id: str,
                       current_amount_g: float,
                       avg_daily_g: float | None,
                       cups_left: float | None,
                       percent_full: float | None,
                       expected_empty_date):
     """
-    Write the NEW schema fields only, using ON DUPLICATE KEY UPDATE for idempotency.
+    Write stats using container_id (device_id) as primary key
     """
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO user_stats (
-            user_id, container_id, current_amount_g, avg_daily_consumption_g,
+            container_id, current_amount_g, avg_daily_consumption_g,
             cups_left, percent_full, expected_empty_date
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (%s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
-            container_id=VALUES(container_id),
             current_amount_g=VALUES(current_amount_g),
             avg_daily_consumption_g=VALUES(avg_daily_consumption_g),
             cups_left=VALUES(cups_left),
             percent_full=VALUES(percent_full),
             expected_empty_date=VALUES(expected_empty_date)
     """, (
-        user_id, device_id, current_amount_g, avg_daily_g,
+        device_id, current_amount_g, avg_daily_g,
         cups_left, percent_full, expected_empty_date
     ))
     conn.commit()
@@ -272,18 +246,6 @@ def save_weight(weight: float):
         conn = mysql.connector.connect(**MYSQL_CONFIG)
         print("[analysis] Connected to MySQL")
         
-        # Get user ID
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM users WHERE device_id = %s LIMIT 1", (DEVICE_ID,))
-        user_result = cur.fetchone()
-        cur.close()
-        
-        if not user_result:
-            print(f"[analysis] No user with device_id='{DEVICE_ID}' – skipping insert.")
-            conn.close()
-            return
-        
-        user_id = user_result[0]
         current_amount_g = float(weight)
         
         # Insert weight data with precise timestamp (ignore duplicates)
@@ -311,23 +273,9 @@ def save_weight(weight: float):
         if days_left is not None and days_left > 0:
             expected_empty_date = datetime.now().date() + timedelta(days=int(days_left))
         
-        # Update user_stats
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO user_stats (
-                user_id, container_id, current_amount_g, avg_daily_consumption_g,
-                cups_left, percent_full, expected_empty_date
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-                current_amount_g=VALUES(current_amount_g),
-                avg_daily_consumption_g=VALUES(avg_daily_consumption_g),
-                cups_left=VALUES(cups_left),
-                percent_full=VALUES(percent_full)
-        """, (
-            user_id, DEVICE_ID, current_amount_g, learned_daily_consumption,
-            cups_left, percent_full, expected_empty_date
-        ))
-        cur.close()
+        # Update user_stats using device_id (container_id)
+        upsert_user_stats(conn, DEVICE_ID, current_amount_g, learned_daily_consumption,
+                         cups_left, percent_full, expected_empty_date)
         
         print(f"[analysis] Analytics: cups_left={cups_left:.1f}, percent_full={percent_full:.1f}%, learned_cup_size={learned_cup_size:.1f}g, learned_daily={learned_daily_consumption:.1f}g, days_left={days_left:.1f}")
         print("[analysis] Successfully saved weight and analytics to MySQL ✅")

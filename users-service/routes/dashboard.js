@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database/connection');
 
-// Change from GET to POST to send user ID in body
 router.post('/status', async (req, res) => {
   try {
     const { userId } = req.body;
@@ -16,7 +15,7 @@ router.post('/status', async (req, res) => {
     
     console.log(`Dashboard request for user ID: ${userId}`);
     
-    // Get user's device_id first
+    // Step 1: Get user's device_id from users table
     const userDevice = await db.query(`
       SELECT device_id FROM users 
       WHERE id = ?
@@ -31,13 +30,13 @@ router.post('/status', async (req, res) => {
     
     const deviceId = userDevice[0].device_id;
     
-    // Get user-specific stats
-    const userStats = await db.query(`
+    // Step 2: Get device stats using container_id (device_id) - NEW QUERY
+    const deviceStats = await db.query(`
       SELECT * FROM user_stats 
-      WHERE user_id = ?
-    `, [userId]);
+      WHERE container_id = ?
+    `, [deviceId]);
     
-    // Get latest weight data for this user's device
+    // Step 3: Get latest weight data for this device
     const weightData = await db.query(`
       SELECT * FROM weight_data 
       WHERE device_id = ? 
@@ -45,20 +44,19 @@ router.post('/status', async (req, res) => {
       LIMIT 1
     `, [deviceId]);
     
-    // Calculate user-specific metrics
-    const userStat = userStats[0] || {};
+    // Step 4: Use device stats (shared by all users of this device)
+    const deviceStat = deviceStats[0] || {};
     
-    // Use stored values instead of recalculating
     const result = {
       success: true,
       userId: parseInt(userId),
       deviceId: deviceId,
-      currentMilkAmount: userStat.current_amount_g || 0,  // Use stored value
-      coffeeCupsLeft: userStat.cups_left || 0,
-      averageDailyConsumption: userStat.avg_daily_consumption_g || 0,
-      expectedMilkEndDay: userStat.expected_empty_date || null,
-      percentFull: userStat.percent_full || 0,  // Use stored value
-      isWeightSensorActive: (userStat.current_amount_g || 0) > 0,
+      currentMilkAmount: deviceStat.current_amount_g || 0,
+      coffeeCupsLeft: deviceStat.cups_left || 0,
+      averageDailyConsumption: deviceStat.avg_daily_consumption_g || 0,
+      expectedMilkEndDay: deviceStat.expected_empty_date || null,
+      percentFull: deviceStat.percent_full || 0,
+      isWeightSensorActive: (deviceStat.current_amount_g || 0) > 0,
       lastUpdated: weightData[0]?.timestamp || null
     };
 
