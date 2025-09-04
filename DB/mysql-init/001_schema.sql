@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
   password   VARCHAR(255) NOT NULL,
   full_name  VARCHAR(255) NOT NULL,
   email      VARCHAR(255) NOT NULL,
-  phone      VARCHAR(32)  NULL,
+  phone      VARCHAR(32)  NOT NULL,
   device_id  VARCHAR(50)  NOT NULL,
   created_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -29,9 +29,6 @@ CREATE TABLE IF NOT EXISTS weight_data (
   weight     FLOAT        NOT NULL,
   `timestamp` DATETIME    NOT NULL,
   PRIMARY KEY (id),
-  -- FK אל users.device_id (חייב להיות ייחודי ב-users, והגדרנו uniq_device למעלה)
-  CONSTRAINT fk_wd_user_device
-    FOREIGN KEY (device_id) REFERENCES users(device_id),
   -- אינדקסים לשאילתות בזמן
   UNIQUE KEY uniq_device_time (device_id, `timestamp`),
   KEY idx_weight_device_time (device_id, `timestamp`)

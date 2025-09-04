@@ -35,10 +35,10 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // הרשמה — חובה username + email + password
-  const register = async ({ username, email, password, full_name = null }) => {
-    if (!username || !email || !password) {
-      return { ok: false, error: "username, email ו-password הם חובה" };
+  // הרשמה — חובה username + email + password + device_id + phone
+  const register = async ({ username, email, password, full_name = null, device_id, phone }) => {
+    if (!username || !email || !password || !device_id || !phone) {
+      return { ok: false, error: "username, email, password, device_id ו-phone הם חובה" };
     }
     try {
       const { data } = await api.post("/auth/register", {
@@ -46,6 +46,8 @@ export function AuthProvider({ children }) {
         email: String(email).trim().toLowerCase(),
         password,
         full_name,
+        device_id: String(device_id).trim(),
+        phone: String(phone).trim(),
       });
       // השרת לא פותח סשן בהרשמה — נעבור למסך Login
       return { ok: true, data };

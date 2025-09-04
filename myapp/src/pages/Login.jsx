@@ -12,6 +12,7 @@ export default function Login() {
   });
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showValidation, setShowValidation] = useState(false);
 
   const onChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
 
@@ -29,6 +30,7 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErr("");
+    setShowValidation(true);
 
     if (!validation.ok) {
       setErr(validation.msg);
@@ -57,18 +59,19 @@ export default function Login() {
 
         <form onSubmit={handleSubmit} noValidate>
           <div className="auth__group">
-            <label className="label">שם משתמש</label>
+            <label className="label">שם משתמש<span className="required-asterisk">*</span></label>
             <input
               className="input"
               name="username"
               value={form.username}
               onChange={onChange}
               autoComplete="username"
+              placeholder="הכנס שם משתמש"
             />
           </div>
 
           <div className="auth__group">
-            <label className="label">סיסמה</label>
+            <label className="label">סיסמה<span className="required-asterisk">*</span></label>
             <input
               className="input"
               type="password"
@@ -76,14 +79,15 @@ export default function Login() {
               value={form.password}
               onChange={onChange}
               autoComplete="current-password"
+              placeholder="הכנס סיסמה"
             />
           </div>
 
-          {!validation.ok && <div className="error">{validation.msg}</div>}
+          {showValidation && !validation.ok && <div className="error">{validation.msg}</div>}
           {err && <div className="error">{err}</div>}
 
-          <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-            <button className="btn" type="submit" disabled={loading || !validation.ok}>
+          <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
+            <button className="btn" type="submit" disabled={loading}>
               {loading ? "מתחברת..." : "התחברות"}
             </button>
             <Link className="btn btn--ghost" to="/signup">אין לי חשבון</Link>
