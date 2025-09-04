@@ -5,10 +5,30 @@ import axios from "axios";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:30001";
 
 export const api = axios.create({
-  baseURL: API_URL, // Use environment variable
-  withCredentials: true, // שולח/מקבל קוקיז (sid)
+  baseURL: API_URL,
+  withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
+
+// Add request interceptor
+api.interceptors.request.use(
+  (config) => {
+    console.log(`[UI] 📤 Sent ${config.method?.toUpperCase()} request to ${config.url}`, config.data);
+    return config;
+  }
+);
+
+// Add response interceptor
+api.interceptors.response.use(
+  (response) => {
+    console.log(`[UI] ✅ Received ${response.status} response from ${response.config.url}`, response.data);
+    return response;
+  },
+  (error) => {
+    console.log(`[UI] ❌ Received ${error.response?.status || 'Network Error'} from ${error.config?.url}`, error.response?.data || error.message);
+    return Promise.reject(error);
+  }
+);
 
 // ===== Auth =====
 export const register = ({ username, password, email, full_name = null }) =>
