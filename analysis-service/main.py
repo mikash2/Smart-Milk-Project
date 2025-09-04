@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import time
 import math
+import json
 from datetime import datetime, timedelta, date
 
 import mysql.connector
@@ -238,15 +239,47 @@ def upsert_user_stats(conn, device_id: str,
     conn.commit()
     cur.close()
 
-# ======= Save flow =======
-def save_weight(weight: float):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    print(f"[{timestamp}] [INFO] [ANALYSIS-SERVICE] 💾 Starting analytics operations for weight: {weight}g")
+# Add global message counter at the top level
+message_counter = 0
+
+# ======= MQTT callbacks =======
+def on_connect(client, userdata, flags, rc, properties=None):
+    client.subscribe(MQTT_TOPIC)
+    print(f"[analysis] Connected to MQTT and subscribed to {MQTT_TOPIC}")
+
+def on_message(client, userdata, msg, properties=None):
+    global message_counter
+    message_counter += 1
     
+    try:
+        payload = msg.payload.decode().strip()
+        
+        # Try to parse as JSON first
+        try:
+            data = json.loads(payload)
+            device_id = data.get("device_id", DEVICE_ID)
+            weight = float(data.get("weight"))
+            message_id = data.get("message_id", "unknown")
+            
+            print(f"[analysis] Message #{message_counter}: Received from device {device_id}, weight {weight}g, msg_id: {message_id}")
+            
+        except (json.JSONDecodeError, KeyError, TypeError):
+            # Fallback to old format (plain number)
+            weight = float(payload)
+            device_id = DEVICE_ID
+            
+            print(f"[analysis] Message #{message_counter}: Received legacy format from device {device_id}, weight {weight}g")
+        
+        save_weight(device_id, weight, message_counter)
+        
+    except Exception as e:
+        print(f"[analysis] Message #{message_counter}: ERROR - {e}")
+
+# ======= Save flow =======
+def save_weight(device_id: str, weight: float, msg_num: int):
     try:
         # Create a fresh connection for each operation
         conn = mysql.connector.connect(**MYSQL_CONFIG)
-        print(f"[{timestamp}] [SUCCESS] [ANALYSIS-SERVICE] ✅ Connected to MySQL database")
         
         current_amount_g = float(weight)
         
@@ -254,14 +287,9 @@ def save_weight(weight: float):
         cur = conn.cursor()
         now = datetime.now()
         
-        print(f"[{timestamp}] [INFO] [ANALYSIS-SERVICE] 📊 Inserting weight data:")
-        print(f"[{timestamp}] [INFO] [ANALYSIS-SERVICE]   └─ Device ID: {DEVICE_ID}")
-        print(f"[{timestamp}] [INFO] [ANALYSIS-SERVICE]   └─ Weight: {current_amount_g}g")
-        print(f"[{timestamp}] [INFO] [ANALYSIS-SERVICE]   └─ Timestamp: {now}")
-        
         cur.execute(
             "INSERT IGNORE INTO weight_data (device_id, weight, timestamp) VALUES (%s, %s, %s)",
-            (DEVICE_ID, current_amount_g, now)
+            (device_id, current_amount_g, now)
         )
         cur.close()
         
@@ -269,11 +297,11 @@ def save_weight(weight: float):
         percent_full = min(100.0, (current_amount_g / 1000.0) * 100)  # Assume 1000g is full
         
         # Get learned cup size from recent weight drops
-        learned_cup_size = calculate_learned_cup_size(conn, DEVICE_ID)
+        learned_cup_size = calculate_learned_cup_size(conn, device_id)
         cups_left = math.floor(current_amount_g / learned_cup_size) if learned_cup_size > 0 else 0
         
         # Get learned daily consumption
-        learned_daily_consumption = calculate_learned_daily_consumption(conn, DEVICE_ID)
+        learned_daily_consumption = calculate_learned_daily_consumption(conn, device_id)
         
         # Calculate days left until empty
         expected_empty_date = None
@@ -281,19 +309,16 @@ def save_weight(weight: float):
             days_left = current_amount_g / learned_daily_consumption
             if days_left > 0:
                 expected_empty_date = datetime.now().date() + timedelta(days=int(days_left))
-                print(f"[{timestamp}] [INFO] [ANALYSIS-SERVICE] 📅 Calculated expected empty date: {expected_empty_date} (in {days_left:.1f} days)")
         
         # Update user_stats using device_id (container_id)
-        upsert_user_stats(conn, DEVICE_ID, current_amount_g, learned_daily_consumption,
+        upsert_user_stats(conn, device_id, current_amount_g, learned_daily_consumption,
                          cups_left, percent_full, expected_empty_date)
         
-        print(f"[{timestamp}] [INFO] [ANALYSIS-SERVICE] 📊 Analytics: cups_left={cups_left} (rounded down), percent_full={percent_full:.1f}%, learned_cup_size={learned_cup_size:.1f}g, learned_daily={learned_daily_consumption:.1f}g, expected_empty_date={expected_empty_date}")
-        print(f"[{timestamp}] [SUCCESS] [ANALYSIS-SERVICE] ✅ Weight data processed successfully and analytics saved to MySQL")
-        print(f"[{timestamp}] [INFO] [ANALYSIS-SERVICE] " + "=" * 60)
+        print(f"[analysis] Message #{msg_num}: Analytics saved to MySQL - {cups_left} cups left, {percent_full:.1f}% full")
         conn.close()
         
     except Exception as e:
-        print(f"[{timestamp}] [ERROR] [ANALYSIS-SERVICE] ❌ Error saving to MySQL: {e}")
+        print(f"[analysis] Message #{msg_num}: ERROR saving to MySQL - {e}")
         try:
             conn.close()
         except:
@@ -335,7 +360,6 @@ def calculate_learned_cup_size(conn, device_id: str) -> float:
         
         # Calculate average cup size from drops
         avg_cup_size = sum(drops) / len(drops)
-        print(f"[analysis] Learned cup size: {avg_cup_size:.1f}g from {len(drops)} pours")
         return avg_cup_size
         
     except Exception as e:
@@ -375,38 +399,11 @@ def calculate_learned_daily_consumption(conn, device_id: str) -> float:
             return 200.0  # Default if no valid consumption data
         
         avg_daily = sum(daily_consumptions) / len(daily_consumptions)
-        print(f"[analysis] Learned daily consumption: {avg_daily:.1f}g from {len(daily_consumptions)} days")
         return avg_daily
         
     except Exception as e:
         print(f"[analysis] Error calculating daily consumption: {e}")
         return 200.0  # Default fallback
-
-# ======= MQTT callbacks =======
-def on_connect(client, userdata, flags, rc, properties=None):
-    client.subscribe(MQTT_TOPIC)
-    print(f"[analysis] Connected to MQTT and subscribed to {MQTT_TOPIC}")
-
-def on_message(client, userdata, msg, properties=None):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    try:
-        payload = msg.payload.decode().strip()
-        weight = float(payload)
-        
-        print(f"[{timestamp}] [INFO] [ANALYSIS-SERVICE] 📨 Received MQTT message:")
-        print(f"[{timestamp}] [INFO] [ANALYSIS-SERVICE]   └─ Topic: {msg.topic}")
-        print(f"[{timestamp}] [INFO] [ANALYSIS-SERVICE]   └─ Payload: {payload}")
-        print(f"[{timestamp}] [INFO] [ANALYSIS-SERVICE]   └─ Weight: {weight}g")
-        print(f"[{timestamp}] [INFO] [ANALYSIS-SERVICE] 🔄 Processing weight data...")
-        
-        save_weight(weight)
-        
-        print(f"[{timestamp}] [SUCCESS] [ANALYSIS-SERVICE] ✅ Weight data processed successfully")
-        print(f"[{timestamp}] [INFO] [ANALYSIS-SERVICE] " + "=" * 60)
-        
-    except Exception as e:
-        print(f"[{timestamp}] [ERROR] [ANALYSIS-SERVICE] ❌ Error processing message: {e}")
-        print(f"[{timestamp}] [ERROR] [ANALYSIS-SERVICE]   └─ Raw payload: {msg.payload}")
 
 def main():
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)

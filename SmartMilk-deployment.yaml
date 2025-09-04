@@ -271,7 +271,7 @@ spec:
     spec:
       containers:
       - name: weight-service
-        image: mika66/smart-milk-weight-service:latest
+        image: mika66/smart-milk-weight-service:v1.5
         imagePullPolicy: Always
         env:
         - name: MQTT_HOST
@@ -283,6 +283,11 @@ spec:
             configMapKeyRef:
               name: smart-milk-config
               key: MQTT_TOPIC
+        - name: DEVICE_ID
+          valueFrom:
+            configMapKeyRef:
+              name: smart-milk-config
+              key: DEVICE_ID
         resources:
           requests:
             memory: "64Mi"
@@ -310,7 +315,7 @@ spec:
     spec:
       containers:
       - name: analysis-service
-        image: mika66/smart-milk-analysis-service:latest
+        image: mika66/smart-milk-analysis-service:v1.3
         imagePullPolicy: Always
         env:
         - name: MQTT_HOST
@@ -405,7 +410,7 @@ spec:
     spec:
       containers:
       - name: updates-service
-        image: mika66/smart-milk-updates-service:latest
+        image: mika66/smart-milk-updates-service:v1.2
         imagePullPolicy: Always
         env:
         # MQTT Configuration
@@ -514,7 +519,7 @@ spec:
     spec:
       containers:
       - name: users-service
-        image: mika66/smart-milk-users-service:latest
+        image: mika66/smart-milk-users-service:v1.2
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
@@ -600,7 +605,7 @@ spec:
     spec:
       containers:
       - name: myapp
-        image: mika66/smart-milk-myapp:latest
+        image: mika66/smart-milk-myapp:v1.2
         imagePullPolicy: Always
         ports:
         - containerPort: 80
