@@ -14,9 +14,12 @@ export default function Signup() {
     password: "",
     confirm: "",
     full_name: "",
+    device_id: "",
+    phone: "",
   });
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showValidation, setShowValidation] = useState(false);
 
   const onChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
 
@@ -26,9 +29,11 @@ export default function Signup() {
     const email = form.email.trim().toLowerCase();
     const password = form.password;
     const confirm = form.confirm;
+    const device_id = form.device_id.trim();
+    const phone = form.phone.trim();
 
-    if (!username || !email || !password || !confirm) {
-      return { ok: false, msg: "נא למלא את כל השדות" };
+    if (!username || !email || !password || !confirm || !device_id || !phone) {
+      return { ok: false, msg: "נא למלא את כל השדות החובה" };
     }
     if (!/^[a-zA-Z0-9._-]{3,100}$/.test(username)) {
       return { ok: false, msg: "שם משתמש לא תקין (3–100 תווים, אותיות/ספרות/._-)" };
@@ -41,6 +46,12 @@ export default function Signup() {
     }
     if (password !== confirm) {
       return { ok: false, msg: "האימות לא תואם לסיסמה" };
+    }
+    if (!/^[0-9\-\+\s\(\)]{10,15}$/.test(phone)) {
+      return { ok: false, msg: "מספר טלפון לא תקין (10-15 ספרות)" };
+    }
+    if (device_id.length < 3 || device_id.length > 50) {
+      return { ok: false, msg: "מזהה המכשיר חייב להיות באורך 3-50 תווים" };
     }
     return { ok: true, msg: "" };
   }, [form]);
@@ -59,7 +70,10 @@ export default function Signup() {
       username: form.username.trim(),
       email: form.email.trim().toLowerCase(),
       password: form.password,
-      full_name: form.full_name.trim() || null,    });
+      full_name: form.full_name.trim() || null,
+      device_id: form.device_id.trim(),
+      phone: form.phone.trim(),
+    });
     setLoading(false);
 
     if (res.ok) {
@@ -85,57 +99,90 @@ export default function Signup() {
               onChange={onChange}
             />
           </div>
-          <div className="auth__group">
-            <label className="label">שם משתמש</label>
-            <input
-              className="input"
-              name="username"
-              value={form.username}
-              onChange={onChange}
-              autoComplete="username"
-            />
+          <div className="grid-2">
+            <div className="auth__group">
+              <label className="label">שם משתמש<span className="required-asterisk">*</span></label>
+              <input
+                className="input"
+                name="username"
+                value={form.username}
+                onChange={onChange}
+                autoComplete="username"
+                placeholder="שם משתמש ייחודי"
+              />
+            </div>
+
+            <div className="auth__group">
+              <label className="label">אימייל<span className="required-asterisk">*</span></label>
+              <input
+                className="input"
+                type="email"
+                name="email"
+                value={form.email}
+                onChange={onChange}
+                autoComplete="email"
+                placeholder="your@email.com"
+              />
+            </div>
           </div>
 
-          <div className="auth__group">
-            <label className="label">אימייל</label>
-            <input
-              className="input"
-              type="email"
-              name="email"
-              value={form.email}
-              onChange={onChange}
-              autoComplete="email"
-            />
+          <div className="grid-2">
+            <div className="auth__group">
+              <label className="label">סיסמה<span className="required-asterisk">*</span></label>
+              <input
+                className="input"
+                type="password"
+                name="password"
+                value={form.password}
+                onChange={onChange}
+                autoComplete="new-password"
+                placeholder="סיסמה חזקה"
+              />
+            </div>
+
+            <div className="auth__group">
+              <label className="label">אימות סיסמה<span className="required-asterisk">*</span></label>
+              <input
+                className="input"
+                type="password"
+                name="confirm"
+                value={form.confirm}
+                onChange={onChange}
+                autoComplete="new-password"
+                placeholder="חזור על הסיסמה"
+              />
+            </div>
           </div>
 
-          <div className="auth__group">
-            <label className="label">סיסמה</label>
-            <input
-              className="input"
-              type="password"
-              name="password"
-              value={form.password}
-              onChange={onChange}
-              autoComplete="new-password"
-            />
-          </div>
-
-          <div className="auth__group">
-            <label className="label">אימות סיסמה</label>
-            <input
-              className="input"
-              type="password"
-              name="confirm"
-              value={form.confirm}
-              onChange={onChange}
-              autoComplete="new-password"
-            />
+          <div className="grid-2">
+            <div className="auth__group">
+              <label className="label">מזהה המכשיר<span className="required-asterisk">*</span></label>
+              <input
+                className="input"
+                name="device_id"
+                value={form.device_id}
+                onChange={onChange}
+                placeholder="DEVICE001"
+              />
+            </div>
+            
+            <div className="auth__group">
+              <label className="label">מספר טלפון<span className="required-asterisk">*</span></label>
+              <input
+                className="input"
+                type="tel"
+                name="phone"
+                value={form.phone}
+                onChange={onChange}
+                placeholder="050-1234567"
+              />
+            </div>
           </div>
 
           {!validation.ok && <div className="error">{validation.msg}</div>}
           {err && <div className="error">{err}</div>}
 
-          <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+          <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
             <button className="btn" type="submit" disabled={loading || !validation.ok}>
               {loading ? "נרשמת..." : "הרשמה"}
             </button>

@@ -17,7 +17,7 @@ docker build --no-cache -t mika66/smart-milk-weight-service:v1.7 ./weight-servic
 docker build --no-cache -t mika66/smart-milk-analysis-service:v1.3 ./analysis-service
 docker build --no-cache -t mika66/smart-milk-updates-service:v1.3 ./updates-service
 docker build --no-cache -t mika66/smart-milk-users-service:v1.2 ./users-service
-docker build --no-cache -t mika66/smart-milk-myapp:v1.2 ./myapp
+docker build --no-cache -t mika66/smart-milk-myapp:v1.4 ./myapp
 
 Write-Host "All images built successfully!" -ForegroundColor Green
 
@@ -27,7 +27,7 @@ docker push mika66/smart-milk-weight-service:v1.7
 docker push mika66/smart-milk-analysis-service:v1.3
 docker push mika66/smart-milk-updates-service:v1.3
 docker push mika66/smart-milk-users-service:v1.2
-docker push mika66/smart-milk-myapp:v1.2
+docker push mika66/smart-milk-myapp:v1.4
 
 # Apply deployment and perform rollout
 Write-Host "Applying Kubernetes deployment..." -ForegroundColor Yellow

@@ -7,17 +7,19 @@ const db = require('../database/connection');
 
 // User registration
 router.post('/register', async (req, res) => {
-  const { username, password, email, full_name, device_id } = req.body || {};
+  const { username, password, email, full_name, device_id, phone } = req.body || {};
   
   console.log(`[users] 📝 Registration attempt for username: ${username}, email: ${email}, device: ${device_id}`);
 
-  if (!username || !password || !email) {
-    return res.status(400).json({ success: false, message: 'username, password and email are required' });
+  if (!username || !password || !email || !device_id || !phone) {
+    return res.status(400).json({ success: false, message: 'username, password, email, device_id and phone are required' });
   }
 
   const uname = String(username).trim();
   const emailLower = String(email).toLowerCase().trim();
-  const deviceId = (device_id && String(device_id).trim()) || process.env.DEVICE_ID || 'device1';
+  const deviceId = String(device_id).trim();
+  const phoneNum = String(phone).trim();
+  const fullName = full_name ? String(full_name).trim() : uname; // Use username as fallback if no full_name
 
   // basic validation
   if (!/^[a-zA-Z0-9._-]{3,100}$/.test(uname)) {
@@ -27,9 +29,15 @@ router.post('/register', async (req, res) => {
   if (!emailRe.test(emailLower)) {
     return res.status(400).json({ success: false, message: 'invalid email' });
   }
+  if (!/^[0-9\-\+\s\(\)]{10,15}$/.test(phoneNum)) {
+    return res.status(400).json({ success: false, message: 'invalid phone number (10-15 digits)' });
+  }
+  if (deviceId.length < 3 || deviceId.length > 50) {
+    return res.status(400).json({ success: false, message: 'device ID must be 3-50 characters' });
+  }
 
   try {
-    // uniqueness
+    // uniqueness checks (only for username and email, not device_id)
     const [uTaken] = await db.query('SELECT 1 FROM `users` WHERE `username` = ? LIMIT 1', [uname]);
     if (uTaken) {
       console.log(`[users] ❌ Registration failed - Username already taken: ${uname}`);
@@ -42,14 +50,19 @@ router.post('/register', async (req, res) => {
       return res.status(409).json({ success: false, message: 'Email already registered' });
     }
 
-    // Insert new user
+    // Insert new user (device_id can be shared among multiple users)
     const [result] = await db.query(
-      'INSERT INTO `users` (`username`, `password`, `email`, `full_name`, `device_id`) VALUES (?, ?, ?, ?, ?)',
-      [uname, password, emailLower, full_name, deviceId]
+      'INSERT INTO `users` (`username`, `password`, `email`, `full_name`, `device_id`, `phone`) VALUES (?, ?, ?, ?, ?, ?)',
+      [uname, password, emailLower, fullName, deviceId, phoneNum]
     );
 
     console.log(`[users] ✅ User registered and saved to DB - ID: ${result.insertId}, Username: ${uname}, Device: ${deviceId}`);
-    return res.status(201).json({ success: true, user_id: result.insertId, username: uname, device_id: deviceId });
+    return res.status(201).json({ 
+      success: true, 
+      user_id: result.insertId, 
+      username: uname, 
+      device_id: deviceId
+    });
     
   } catch (e) {
     console.log(`[users] ❌ Registration failed - Database error: ${e.message}`);
