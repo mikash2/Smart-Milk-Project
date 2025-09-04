@@ -12,6 +12,25 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+// Add the same logging interceptors here!
+api.interceptors.request.use(
+  (config) => {
+    console.log(`[UI-AUTH] 📤 Sent ${config.method?.toUpperCase()} request to ${config.url}`, config.data);
+    return config;
+  }
+);
+
+api.interceptors.response.use(
+  (response) => {
+    console.log(`[UI-AUTH] ✅ Received ${response.status} response from ${response.config.url}`, response.data);
+    return response;
+  },
+  (error) => {
+    console.log(`[UI-AUTH] ❌ Received ${error.response?.status || 'Network Error'} from ${error.config?.url}`, error.response?.data || error.message);
+    return Promise.reject(error);
+  }
+);
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);

@@ -36,6 +36,13 @@ DRY_RUN     = os.getenv("DRY_RUN_EMAIL", "false").lower() == "true"
 # Throttle (avoid spamming): minutes between emails per user
 ALERT_COOLDOWN_MIN = int(os.getenv("ALERT_COOLDOWN_MIN", "60"))
 
+# Update the configuration and tracking
+ALERT_THRESHOLD_LOW = float(os.getenv("ALERT_THRESHOLD_LOW", "200"))    # First alert at 200g
+ALERT_THRESHOLD_CRITICAL = float(os.getenv("ALERT_THRESHOLD_CRITICAL", "100"))  # Second alert at 100g
+
+# Track which alerts have been sent for each user
+_alerts_sent = {}  # {user_id: {"200": True, "100": True}}
+
 # In-memory cooldown tracker
 _next_allowed_send_utc = {}  # {user_id: datetime}
 
@@ -52,6 +59,46 @@ def _cooldown_ok(user_id: int) -> bool:
 
 def _mark_sent(user_id: int):
     _next_allowed_send_utc[user_id] = _now_utc() + timedelta(minutes=ALERT_COOLDOWN_MIN)
+
+def reset_alerts_for_user(user_id: int):
+    """Reset alert tracking when milk is refilled (weight goes back up)"""
+    if user_id in _alerts_sent:
+        del _alerts_sent[user_id]
+    print(f"[updates] 🔄 Alert tracking reset for user {user_id} (milk refilled)")
+
+def should_send_alert(user_id: int, weight: float) -> tuple[bool, str]:
+    """
+    Returns (should_send, alert_type)
+    alert_type: "200" or "100" or None
+    """
+    if user_id not in _alerts_sent:
+        _alerts_sent[user_id] = {}
+    
+    user_alerts = _alerts_sent[user_id]
+    
+    # Check for critical alert (100g)
+    if weight < ALERT_THRESHOLD_CRITICAL:
+        if not user_alerts.get("100"):
+            return True, "100"
+    
+    # Check for low alert (200g)  
+    elif weight < ALERT_THRESHOLD_LOW:
+        if not user_alerts.get("200"):
+            return True, "200"
+    
+    # Weight is above 200g - reset alerts for refill detection
+    elif weight >= ALERT_THRESHOLD_LOW:
+        if user_alerts:  # Only reset if we had sent alerts
+            reset_alerts_for_user(user_id)
+    
+    return False, None
+
+def mark_alert_sent(user_id: int, alert_type: str):
+    """Mark that we've sent this type of alert to this user"""
+    if user_id not in _alerts_sent:
+        _alerts_sent[user_id] = {}
+    _alerts_sent[user_id][alert_type] = True
+    print(f"[updates] 📝 Marked {alert_type}g alert as sent for user {user_id}")
 
 
 # =========================
@@ -107,39 +154,51 @@ def parse_payload(msg_bytes: bytes):
 # =========================
 from typing import Optional
 
-def send_email_alert(to_email: str, full_name: Optional[str], weight_g: float):
-    subject = "Smart Milk: Low Milk Alert"
-    body = (
-        f"Hi {full_name or 'there'},\n\n"
-        f"Your milk level is low — current weight: {weight_g:.0f} g.\n"
-        f"Consider buying a new carton soon :)\n\n"
-        f"— Smart Milk"
-    )
+def send_email_alert(to_email: str, full_name: str, weight_g: float, alert_type: str):
+    """Send email alert with appropriate message based on alert type"""
+    if alert_type == "100":
+        subject = "🚨 Smart Milk: CRITICAL - Milk Almost Empty!"
+        body = (
+            f"Hi {full_name or 'there'},\n\n"
+            f"🚨 CRITICAL ALERT: Your milk is almost empty!\n"
+            f"Current weight: {weight_g:.0f}g\n\n"
+            f"Please buy milk immediately - you're running very low!\n\n"
+            f"— Smart Milk System"
+        )
+    else:  # alert_type == "200"
+        subject = "⚠️ Smart Milk: Low Milk Alert"
+        body = (
+            f"Hi {full_name or 'there'},\n\n"
+            f"⚠️ Your milk level is getting low.\n"
+            f"Current weight: {weight_g:.0f}g\n\n"
+            f"Consider buying a new carton soon.\n\n"
+            f"— Smart Milk System"
+        )
 
-    print(f"[updates] Preparing email to {to_email!r} (DRY_RUN={DRY_RUN})")
-    if DRY_RUN or not (SMTP_USER and SMTP_PASS and to_email):
-        print(f"[updates] DRY RUN / missing SMTP creds → would send:\nSubject: {subject}\n{body}")
-        return
-
+    
+    # Send actual email (existing email sending code)
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = FROM_EMAIL or SMTP_USER
     msg["To"] = to_email
     msg.set_content(body)
 
-    if SMTP_PORT == 465:
-        ctx = ssl.create_default_context()
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx) as server:
-            server.login(SMTP_USER, SMTP_PASS)
-            server.send_message(msg)
-    else:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.ehlo()
-            server.starttls(context=ssl.create_default_context())
-            server.login(SMTP_USER, SMTP_PASS)
-            server.send_message(msg)
-
-    print(f"[updates] Email sent to {to_email}")
+    try:
+        if SMTP_PORT == 465:
+            ctx = ssl.create_default_context()
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx) as server:
+                server.login(SMTP_USER, SMTP_PASS)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+                server.ehlo()
+                server.starttls(context=ssl.create_default_context())
+                server.login(SMTP_USER, SMTP_PASS)
+                server.send_message(msg)
+        
+        print(f"[updates] ✅ {alert_type}g alert email sent to {to_email}")
+    except Exception as e:
+        print(f"[updates] ❌ Failed to send email: {e}")
 
 
 def print_alert(user_id: int, weight: float):
@@ -151,61 +210,59 @@ def print_alert(user_id: int, weight: float):
 # =========================
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        print(f"[updates] connected to MQTT {MQTT_HOST}:{MQTT_PORT} (rc={rc}); subscribing to {MQTT_TOPIC}")
-        client.subscribe(MQTT_TOPIC, qos=1)
+        print("[updates] ✅ Connected to MQTT broker successfully!")
+        print(f"[updates] 📡 Subscribing to topic: {MQTT_TOPIC}")
+        client.subscribe(MQTT_TOPIC)
+        print("[updates] 🔔 Ready to monitor for low milk alerts")
     else:
-        print(f"[updates] connect failed rc={rc}")
+        print(f"[updates] ❌ MQTT connection failed with code: {rc}")
 
 def on_message(client, userdata, msg):
     try:
         device_id, weight = parse_payload(msg.payload)
-        if weight >= ALERT_THRESHOLD:
-            print(f"[updates] weight {weight}g >= threshold {ALERT_THRESHOLD}g; no alert")
+        print(f"[updates] ⚖️  Received weight: {weight}g from device: {device_id}")
+        
+        if weight >= ALERT_THRESHOLD_LOW:
+            print(f"[updates] ✅ Weight {weight}g >= {ALERT_THRESHOLD_LOW}g; no alerts needed")
             return
 
+        print(f"[updates] 🚨 LOW MILK ALERT! Weight {weight}g < threshold {ALERT_THRESHOLD}g")
+        
         user = find_user_by_device(device_id)
         if not user:
-            print(f"[updates] no user found for device_id='{device_id}', skipping alert")
+            print(f"[updates] ❌ No user found for device_id='{device_id}', skipping alert")
             return
 
-        user_id    = user["id"]
-        full_name  = user.get("full_name")
+        user_id = user["id"]
+        full_name = user.get("full_name")
         user_email = user.get("email")
+        
+        print(f"[updates] 👤 Found user: ID={user_id}, Name={full_name}, Email={user_email}")
 
-        if not user_email:
-            print(f"[updates] user_id={user_id} has no email; printing alert only")
-            print_alert(user_id, weight)
-            return
-
-        if not _cooldown_ok(user_id):
-            print(f"[updates] cooldown active for user_id={user_id}; skipping email")
-            return
-
-        # Print + Email + cooldown
-        print_alert(user_id, weight)
-        send_email_alert(user_email, full_name, weight)
-        _mark_sent(user_id)
-
-        # Optional: also publish alert to an MQTT topic for UI listeners
-        try:
-            payload = {
-                "user_id": user_id,
-                "email": user_email,
-                "weight": weight,
-                "ts": datetime.utcnow().isoformat() + "Z"
-            }
-            client.publish("milk/alerts", json.dumps(payload), qos=1, retain=False)
-        except Exception as e:
-            print(f"[updates] failed to publish alert json: {e}")
+        # Check if we should send an alert
+        should_send, alert_type = should_send_alert(user_id, weight)
+        
+        if should_send:
+            print(f"[updates] 🚨 Sending {alert_type}g threshold alert for weight: {weight}g")
+            send_email_alert(user_email, full_name, weight, alert_type)
+            mark_alert_sent(user_id, alert_type)
+        else:
+            print(f"[updates] ⏭️  No new alerts needed for user {user_id} at weight {weight}g")
 
     except Exception as e:
-        print(f"[updates] message handling error: {e}")
+        print(f"[updates] ❌ Error processing MQTT message: {e}")
 
 
 # =========================
 # Main
 # =========================
 def main():
+    print("[updates] 🚀 Smart Milk Updates Service Starting...")
+    print(f"[updates] 📡 MQTT Config: {MQTT_HOST}:{MQTT_PORT}, Topic: {MQTT_TOPIC}")
+    print(f"[updates] 🚨 Alert Thresholds: {ALERT_THRESHOLD_LOW}g (Low), {ALERT_THRESHOLD_CRITICAL}g (Critical)")
+    print(f"[updates] 📧 Email Config: {SMTP_HOST}:{SMTP_PORT}")
+    print(f"[updates] ⏰ Alert Cooldown: {ALERT_COOLDOWN_MIN} minutes")
+    
     try:
         client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
     except TypeError:

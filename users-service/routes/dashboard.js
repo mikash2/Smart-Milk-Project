@@ -7,13 +7,14 @@ router.post('/status', async (req, res) => {
     const { userId } = req.body;
     
     if (!userId) {
+      console.log(`[dashboard] ❌ Request failed - Missing user ID`);
       return res.status(400).json({ 
         success: false, 
         message: 'User ID is required' 
       });
     }
     
-    console.log(`Dashboard request for user ID: ${userId}`);
+    console.log(`[dashboard] 📊 Dashboard request for user ID: ${userId} - Processing...`);
     
     // Step 1: Get user's device_id from users table
     const userDevice = await db.query(`
@@ -22,6 +23,7 @@ router.post('/status', async (req, res) => {
     `, [userId]);
     
     if (!userDevice.length) {
+      console.log(`[dashboard] ❌ Request failed - User ${userId} not found in database`);
       return res.status(404).json({ 
         success: false, 
         message: 'User not found' 
@@ -30,7 +32,7 @@ router.post('/status', async (req, res) => {
     
     const deviceId = userDevice[0].device_id;
     
-    // Step 2: Get device stats using container_id (device_id) - NEW QUERY
+    // Step 2: Get device stats using container_id (device_id)
     const deviceStats = await db.query(`
       SELECT * FROM user_stats 
       WHERE container_id = ?
@@ -60,10 +62,11 @@ router.post('/status', async (req, res) => {
       lastUpdated: weightData[0]?.timestamp || null
     };
 
+    console.log(`[dashboard] ✅ Dashboard response sent - User: ${userId}, Device: ${deviceId}, Weight: ${result.currentMilkAmount}g, Cups: ${result.coffeeCupsLeft}, Status: 200`);
     res.json(result);
     
   } catch (error) {
-    console.error('Dashboard error:', error);
+    console.log(`[dashboard] ❌ Dashboard failed - User: ${userId}, Error: ${error.message}, Status: 500`);
     res.status(500).json({ 
       success: false, 
       error: error.message,

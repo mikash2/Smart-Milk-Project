@@ -8,6 +8,8 @@ const db = require('../database/connection');
 // User registration
 router.post('/register', async (req, res) => {
   const { username, password, email, full_name, device_id } = req.body || {};
+  
+  console.log(`[users] 📝 Registration attempt for username: ${username}, email: ${email}, device: ${device_id}`);
 
   if (!username || !password || !email) {
     return res.status(400).json({ success: false, message: 'username, password and email are required' });
@@ -29,37 +31,36 @@ router.post('/register', async (req, res) => {
   try {
     // uniqueness
     const [uTaken] = await db.query('SELECT 1 FROM `users` WHERE `username` = ? LIMIT 1', [uname]);
-    if (uTaken) return res.status(409).json({ success: false, message: 'Username already taken' });
+    if (uTaken) {
+      console.log(`[users] ❌ Registration failed - Username already taken: ${uname}`);
+      return res.status(409).json({ success: false, message: 'Username already taken' });
+    }
 
     const [eTaken] = await db.query('SELECT 1 FROM `users` WHERE `email` = ? LIMIT 1', [emailLower]);
-    if (eTaken) return res.status(409).json({ success: false, message: 'Email already registered' });
+    if (eTaken) {
+      console.log(`[users] ❌ Registration failed - Email already registered: ${emailLower}`);
+      return res.status(409).json({ success: false, message: 'Email already registered' });
+    }
 
-    // insert (now passing 5 params for 5 columns, including device_id)
-    const result = await db.query(
-      'INSERT INTO `users` (`username`,`password`,`email`,`full_name`,`device_id`) VALUES (?,?,?,?,?)',
-      [uname, password, emailLower, full_name || null, deviceId]
+    // Insert new user
+    const [result] = await db.query(
+      'INSERT INTO `users` (`username`, `password`, `email`, `full_name`, `device_id`) VALUES (?, ?, ?, ?, ?)',
+      [uname, password, emailLower, full_name, deviceId]
     );
 
+    console.log(`[users] ✅ User registered and saved to DB - ID: ${result.insertId}, Username: ${uname}, Device: ${deviceId}`);
     return res.status(201).json({ success: true, user_id: result.insertId, username: uname, device_id: deviceId });
+    
   } catch (e) {
-    console.error('REGISTER error:', {
-      code: e.code, errno: e.errno, sqlState: e.sqlState,
-      message: e.sqlMessage || e.message, sql: e.sql
-    });
-
-    if (e.code === 'ER_DUP_ENTRY') {
-      const field = /username/i.test(e.sqlMessage) ? 'Username'
-                 : /email/i.test(e.sqlMessage)    ? 'Email'
-                 : 'Value';
-      return res.status(409).json({ success: false, message: `${field} already exists` });
-    }
-    return res.status(500).json({ success: false, message: e.sqlMessage || e.message || 'DB error' });
+    console.log(`[users] ❌ Registration failed - Database error: ${e.message}`);
+    return res.status(500).json({ success: false, message: 'Registration failed', error: e.message });
   }
 });
 
 // User login
 router.post('/login', async (req, res) => {
   const { username, password } = req.body || {};
+  
   if (!username || !password) {
     return res.status(400).json({
       success: false,
@@ -75,18 +76,25 @@ router.post('/login', async (req, res) => {
     const rows = await db.query(sql, [uname]);
 
     if (!rows.length) {
+      console.log(`[users] ❌ Login failed - User not found: ${uname}`);
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
     const user = rows[0];
+    
     if (user.pwd !== password) {
+      console.log(`[users] ❌ Login failed - Invalid password for user: ${uname}`);
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
     req.app.locals.createSession(res, user.id);
     delete user.pwd;
+    
+    console.log(`[users] ✅ Login successful - User: ${uname} (ID: ${user.id}) session created`);
     res.json({ success: true, user });
+    
   } catch (e) {
+    console.log(`[users] ❌ Login failed - Database error: ${e.message}`);
     res.status(500).json({ success: false, message: 'DB error', error: e.message });
   }
 });
