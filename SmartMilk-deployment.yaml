@@ -271,7 +271,7 @@ spec:
     spec:
       containers:
       - name: weight-service
-        image: mika66/smart-milk-weight-service:v1.5
+        image: mika66/smart-milk-weight-service:v1.7
         imagePullPolicy: Always
         env:
         - name: MQTT_HOST
@@ -410,7 +410,7 @@ spec:
     spec:
       containers:
       - name: updates-service
-        image: mika66/smart-milk-updates-service:v1.2
+        image: mika66/smart-milk-updates-service:v1.3
         imagePullPolicy: Always
         env:
         # MQTT Configuration

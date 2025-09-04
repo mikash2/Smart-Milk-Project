@@ -15,6 +15,9 @@ DEVICE_ID = os.getenv("DEVICE_ID", "device1")
 
 client = mqtt.Client()
 
+# Global state for milk carton simulation
+current_milk_weight = 1000  # Start with a full carton
+
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         print("[weight] Connected to MQTT broker successfully", flush=True)
@@ -44,14 +47,30 @@ def connect_mqtt():
             time.sleep(5)
 
 def simulate_weight():
-    """Simulate weight data (replace with actual HX711 reading)"""
-    base_weight = 1000  # grams (full container)
-    current_weight = max(0, base_weight - random.randint(0, 100))
-    return current_weight
+    """Simulate realistic milk weight data with consumption patterns"""
+    global current_milk_weight
+    
+    # If milk is very low (under 100g), replace with new carton
+    if current_milk_weight < 100:
+        current_milk_weight = 1000
+        print(f"[weight] New milk carton placed! Weight reset to {current_milk_weight}g", flush=True)
+        return current_milk_weight
+    
+    # Simulate milk consumption - random amount between 60-120g
+    consumption_amounts = [60, 70, 80, 100, 120]
+    consumption = random.choice(consumption_amounts)
+    
+    # Decrease current weight by consumption amount
+    current_milk_weight = max(0, current_milk_weight - consumption)
+    
+    print(f"[weight] Milk consumed: {consumption}g, remaining: {current_milk_weight}g", flush=True)
+    
+    return current_milk_weight
 
 def publish_weight():
     message_count = 0
     print("[weight] Starting weight publishing loop...", flush=True)
+    print(f"[weight] Starting with full milk carton: {current_milk_weight}g", flush=True)
     
     while True:
         try:
@@ -67,7 +86,7 @@ def publish_weight():
             }
             payload_json = json.dumps(payload_data)
             
-            # Simple log - just the essential data
+            # Enhanced log to show consumption pattern
             print(f"[weight] Message #{message_count}: Sent device {DEVICE_ID}, weight {weight}g, msg_id: {payload_data['message_id']}", flush=True)
             
             result = client.publish(MQTT_TOPIC, payload=payload_json, qos=1)

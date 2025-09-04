@@ -104,20 +104,20 @@ def mark_alert_sent(user_id: int, alert_type: str):
 # =========================
 # DB access
 # =========================
-def find_user_by_device(device_id: str):
-    """Return dict {id, full_name, email} for users.device_id, or None."""
+def find_all_users_by_device(device_id: str):
+    """Return list of dicts [{id, full_name, email}, ...] for ALL users with this device_id."""
     try:
         conn = mysql.connector.connect(**MYSQL_CONFIG)
         cur  = conn.cursor(dictionary=True)
         cur.execute(
-            "SELECT id, full_name, email FROM users WHERE device_id=%s LIMIT 1",
+            "SELECT id, full_name, email FROM users WHERE device_id=%s",
             (device_id,)
         )
-        row = cur.fetchone()
-        return row
+        rows = cur.fetchall()
+        return rows
     except Exception as e:
-        print(f"[updates] MySQL error while finding user: {e}")
-        return None
+        print(f"[updates] MySQL error while finding users: {e}")
+        return []
     finally:
         try:
             cur.close(); conn.close()
@@ -226,28 +226,32 @@ def on_message(client, userdata, msg):
             print(f"[updates] ✅ Weight {weight}g >= {ALERT_THRESHOLD_LOW}g; no alerts needed")
             return
 
-        print(f"[updates] 🚨 LOW MILK ALERT! Weight {weight}g < threshold {ALERT_THRESHOLD}g")
+        print(f"[updates] 🚨 LOW MILK ALERT! Weight {weight}g < threshold {ALERT_THRESHOLD_LOW}g")
         
-        user = find_user_by_device(device_id)
-        if not user:
-            print(f"[updates] ❌ No user found for device_id='{device_id}', skipping alert")
+        users = find_all_users_by_device(device_id)
+        if not users:
+            print(f"[updates] ❌ No users found for device_id='{device_id}', skipping alert")
             return
 
-        user_id = user["id"]
-        full_name = user.get("full_name")
-        user_email = user.get("email")
-        
-        print(f"[updates] 👤 Found user: ID={user_id}, Name={full_name}, Email={user_email}")
+        print(f"[updates] 👥 Found {len(users)} user(s) connected to device {device_id}")
 
-        # Check if we should send an alert
-        should_send, alert_type = should_send_alert(user_id, weight)
-        
-        if should_send:
-            print(f"[updates] 🚨 Sending {alert_type}g threshold alert for weight: {weight}g")
-            send_email_alert(user_email, full_name, weight, alert_type)
-            mark_alert_sent(user_id, alert_type)
-        else:
-            print(f"[updates] ⏭️  No new alerts needed for user {user_id} at weight {weight}g")
+        # Send alerts to all users connected to this device
+        for user in users:
+            user_id = user["id"]
+            full_name = user.get("full_name")
+            user_email = user.get("email")
+            
+            print(f"[updates] 👤 Processing user: ID={user_id}, Name={full_name}, Email={user_email}")
+
+            # Check if we should send an alert to this specific user
+            should_send, alert_type = should_send_alert(user_id, weight)
+            
+            if should_send:
+                print(f"[updates] 🚨 Sending {alert_type}g threshold alert to {user_email} for weight: {weight}g")
+                send_email_alert(user_email, full_name, weight, alert_type)
+                mark_alert_sent(user_id, alert_type)
+            else:
+                print(f"[updates] ⏭️  No new alerts needed for user {user_id} ({user_email}) at weight {weight}g")
 
     except Exception as e:
         print(f"[updates] ❌ Error processing MQTT message: {e}")
