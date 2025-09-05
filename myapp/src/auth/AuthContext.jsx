@@ -7,7 +7,7 @@ export function useAuth() { return useContext(AuthContext); }
 
 // לקוח API עם cookies
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:30000",
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:30001",
   withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
