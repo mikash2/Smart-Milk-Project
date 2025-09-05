@@ -415,7 +415,7 @@ spec:
     spec:
       containers:
       - name: updates-service
-        image: mika66/smart-milk-updates-service:v1.4
+        image: mika66/smart-milk-updates-service:v1.6
         imagePullPolicy: Always
         env:
         # MQTT Configuration

@@ -5,6 +5,7 @@ from email.message import EmailMessage
 import mysql.connector
 import smtplib
 import ssl
+import threading
 
 # =========================
 # Config (env with defaults)
@@ -40,11 +41,20 @@ ALERT_COOLDOWN_MIN = int(os.getenv("ALERT_COOLDOWN_MIN", "60"))
 ALERT_THRESHOLD_LOW = float(os.getenv("ALERT_THRESHOLD_LOW", "200"))    # First alert at 200g
 ALERT_THRESHOLD_CRITICAL = float(os.getenv("ALERT_THRESHOLD_CRITICAL", "100"))  # Second alert at 100g
 
+# Carton removal detection configuration
+CARTON_REMOVAL_GRACE_PERIOD_MIN = int(os.getenv("CARTON_REMOVAL_GRACE_PERIOD_MIN", "1"))  # Wait 1 minute before alerting on 0g
+
 # Track which alerts have been sent for each device
 _device_alerts_sent = {}  # {device_id: {"200": True, "100": True}}
 
 # In-memory cooldown tracker per device
 _device_cooldown_utc = {}  # {device_id: datetime}
+
+# Carton removal tracking per device - tracks previous weight before 0g
+_device_carton_removal_tracking = {}  # {device_id: {"previous_weight": float, "zero_time": datetime, "grace_period_active": bool}}
+
+# Add this new tracking dictionary
+_device_zero_weight_tracking = {}  # {device_id: {"zero_start_time": datetime}}
 
 
 # =========================
@@ -64,32 +74,248 @@ def reset_alerts_for_device(device_id: str):
     """Reset alert tracking when milk is refilled (weight goes back up)"""
     if device_id in _device_alerts_sent:
         del _device_alerts_sent[device_id]
+    
+    # Also reset carton removal tracking when weight goes back up significantly
+    if device_id in _device_carton_removal_tracking:
+        del _device_carton_removal_tracking[device_id]
+    
     print(f"[updates] 🔄 Alert tracking reset for device {device_id} (milk refilled)")
+
+def handle_carton_removal_logic(device_id: str, weight: float) -> tuple[bool, str]:
+    """
+    Handle the sophisticated carton removal logic based on previous weight.
+    Returns (should_send_alert, alert_type)
+    """
+    now = _now_utc()
+    
+    # If weight is not 0g, update previous weight and reset tracking if needed
+    if weight > 0:
+        # If we were in grace period and weight came back up, check what to do
+        if device_id in _device_carton_removal_tracking:
+            tracking = _device_carton_removal_tracking[device_id]
+            previous_weight = tracking.get("previous_weight", 0)
+            
+            if tracking.get("grace_period_active", False):
+                # Grace period was active, now we have a new weight
+                print(f"[updates] 🥛 Carton returned after removal! Previous: {previous_weight}g, Current: {weight}g")
+                
+                # Determine action based on previous weight and current weight
+                if previous_weight >= ALERT_THRESHOLD_LOW:  # Was above 200g before removal
+                    if weight >= ALERT_THRESHOLD_LOW:  # Back above 200g
+                        print(f"[updates] ✅ Carton refilled to {weight}g - no alert needed (was {previous_weight}g before)")
+                        del _device_carton_removal_tracking[device_id]
+                        return False, None
+                    elif weight >= ALERT_THRESHOLD_CRITICAL:  # Between 100-200g
+                        print(f"[updates] ⚠️ Carton returned at {weight}g (was {previous_weight}g) - sending warning alert")
+                        del _device_carton_removal_tracking[device_id]
+                        return True, "200"
+                    else:  # Below 100g
+                        print(f"[updates] 🚨 Carton returned at {weight}g (was {previous_weight}g) - sending critical alert")
+                        del _device_carton_removal_tracking[device_id]
+                        return True, "100"
+                
+                else:  # Was below 200g before removal
+                    if weight >= ALERT_THRESHOLD_CRITICAL:  # Between 100-200g
+                        # Check if we already sent warning alert for this range
+                        if not _device_alerts_sent.get(device_id, {}).get("200"):
+                            print(f"[updates] ⚠️ Carton returned at {weight}g (was {previous_weight}g) - sending warning alert")
+                            del _device_carton_removal_tracking[device_id]
+                            return True, "200"
+                        else:
+                            print(f"[updates] ⏭️ Carton returned at {weight}g (was {previous_weight}g) - warning already sent")
+                            del _device_carton_removal_tracking[device_id]
+                            return False, None
+                    else:  # Below 100g
+                        print(f"[updates] 🚨 Carton returned at {weight}g (was {previous_weight}g) - sending critical alert")
+                        del _device_carton_removal_tracking[device_id]
+                        return True, "100"
+            
+            else:
+                # Not in grace period, just update previous weight
+                tracking["previous_weight"] = weight
+        else:
+            # No tracking exists, create it
+            _device_carton_removal_tracking[device_id] = {
+                "previous_weight": weight,
+                "zero_time": None,
+                "grace_period_active": False
+            }
+        
+        return False, None  # Normal weight processing
+    
+    # Weight is 0g - handle carton removal
+    if device_id not in _device_carton_removal_tracking:
+        # First time seeing 0g, start tracking
+        _device_carton_removal_tracking[device_id] = {
+            "previous_weight": 0,  # Will be updated from previous readings
+            "zero_time": now,
+            "grace_period_active": True
+        }
+        print(f"[updates] 🥛 Carton removal detected for device {device_id} - starting 1 minute grace period")
+        return False, None
+    
+    tracking = _device_carton_removal_tracking[device_id]
+    
+    if tracking.get("grace_period_active", False):
+        # Check if grace period expired
+        grace_period_expired = now >= tracking["zero_time"] + timedelta(minutes=CARTON_REMOVAL_GRACE_PERIOD_MIN)
+        
+        if grace_period_expired:
+            print(f"[updates] ⏰ Grace period expired for device {device_id} - carton appears to be empty, sending critical alert")
+            del _device_carton_removal_tracking[device_id]
+            return True, "100"  # Critical alert for empty carton
+        else:
+            remaining_time = (tracking["zero_time"] + timedelta(minutes=CARTON_REMOVAL_GRACE_PERIOD_MIN) - now).total_seconds()
+            print(f"[updates] ⏳ Carton removal grace period active for device {device_id}, {remaining_time:.0f} seconds remaining")
+            return False, None
+    
+    return False, None
+
+def check_expired_grace_periods():
+    """Check if any grace periods have expired and send 'milk is over' alerts"""
+    now = _now_utc()
+    expired_devices = []
+    
+    for device_id, tracking in _device_zero_weight_tracking.items():
+        grace_period_expired = now >= tracking["zero_start_time"] + timedelta(minutes=CARTON_REMOVAL_GRACE_PERIOD_MIN)
+        
+        if grace_period_expired:
+            expired_devices.append(device_id)
+            print(f"[updates] ⏰ Grace period expired for device {device_id} - milk is over, sending 'milk is over' alert")
+    
+    # Send "milk is over" alerts for expired devices
+    for device_id in expired_devices:
+        del _device_zero_weight_tracking[device_id]
+        
+        # Send "milk is over" alert
+        users = find_all_users_by_device(device_id)
+        if not users:
+            print(f"[updates] ❌ No users found for device_id='{device_id}', skipping alert")
+            continue
+
+        print(f"[updates]  MILK IS OVER ALERT! Sending 'milk is over' email")
+        print(f"[updates]  Found {len(users)} user(s) connected to device {device_id}")
+
+        # Send "milk is over" alerts to all users connected to this device
+        for user in users:
+            user_email = user.get("email")
+            full_name = user.get("full_name")
+            
+            print(f"[updates] 👤 Sending 'milk is over' alert to: {full_name} ({user_email})")
+            send_milk_is_over_email(user_email, full_name)
+
+def send_milk_is_over_email(to_email: str, full_name: str):
+    """Send 'milk is over' email alert"""
+    subject = "🥛 Smart Milk: Milk Carton is Empty!"
+    body = (
+        f"Hi {full_name or 'there'},\n\n"
+        f"🥛 Your milk carton appears to be empty!\n\n"
+        f"The weight sensor detected that your milk carton has been removed for more than 1 minute.\n"
+        f"This usually means the milk is finished and you need to buy a new carton.\n\n"
+        f"Please check your milk and consider buying a new carton.\n\n"
+        f"— Smart Milk System"
+    )
+
+    # Send actual email
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = FROM_EMAIL or SMTP_USER
+    msg["To"] = to_email
+    msg.set_content(body)
+
+    try:
+        if SMTP_PORT == 465:
+            ctx = ssl.create_default_context()
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx) as server:
+                server.login(SMTP_USER, SMTP_PASS)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+                server.ehlo()
+                server.starttls(context=ssl.create_default_context())
+                server.login(SMTP_USER, SMTP_PASS)
+                server.send_message(msg)
+        
+        print(f"[updates] ✅ 'Milk is over' email sent to {to_email}")
+    except Exception as e:
+        print(f"[updates] ❌ Failed to send 'milk is over' email: {e}")
+
+def handle_zero_weight_simple_logic(device_id: str, weight: float) -> tuple[bool, str]:
+    """
+    Simple rule: If weight is 0g for more than 1 minute, send critical alert - regardless of previous weight.
+    Returns (should_send_alert, alert_type)
+    """
+    now = _now_utc()
+    
+    # If weight is not 0g, reset zero weight tracking (cancel the timer)
+    if weight > 0:
+        if device_id in _device_zero_weight_tracking:
+            del _device_zero_weight_tracking[device_id]
+            print(f"[updates] ✅ Weight returned to {weight}g - canceling 'milk is over' timer")
+        return False, None
+    
+    # Weight is 0g
+    if device_id not in _device_zero_weight_tracking:
+        # First time seeing 0g, start tracking
+        _device_zero_weight_tracking[device_id] = {
+            "zero_start_time": now
+        }
+        print(f"[updates] 🥛 Zero weight detected for device {device_id} - starting 1 minute 'milk is over' timer")
+        return False, None
+    
+    # Check if grace period expired
+    tracking = _device_zero_weight_tracking[device_id]
+    grace_period_expired = now >= tracking["zero_start_time"] + timedelta(minutes=CARTON_REMOVAL_GRACE_PERIOD_MIN)
+    
+    if grace_period_expired:
+        print(f"[updates] ⏰ Grace period expired for device {device_id} - milk is over, sending 'milk is over' alert")
+        del _device_zero_weight_tracking[device_id]
+        return True, "milk_is_over"  # Special alert type for "milk is over"
+    else:
+        remaining_time = (tracking["zero_start_time"] + timedelta(minutes=CARTON_REMOVAL_GRACE_PERIOD_MIN) - now).total_seconds()
+        print(f"[updates] ⏳ 'Milk is over' timer active for device {device_id}, {remaining_time:.0f} seconds remaining")
+        return False, None
 
 def should_send_alert(device_id: str, weight: float) -> tuple[bool, str]:
     """
     Returns (should_send, alert_type)
-    alert_type: "200" or "100" or None
+    alert_type: "200" or "100" or "milk_is_over" or None
     """
-    if device_id not in _device_alerts_sent:
-        _device_alerts_sent[device_id] = {}
+    # First check simple zero weight logic
+    should_send, alert_type = handle_zero_weight_simple_logic(device_id, weight)
+    if should_send:
+        return should_send, alert_type
     
-    device_alerts = _device_alerts_sent[device_id]
+    # If weight is 0g and simple logic didn't send alert, don't check other logic
+    if weight == 0:
+        return False, None
     
-    # Check for critical alert (100g)
-    if weight < ALERT_THRESHOLD_CRITICAL:
-        if not device_alerts.get("100"):
-            return True, "100"
+    # Then check carton removal logic for non-zero weights
+    should_send, alert_type = handle_carton_removal_logic(device_id, weight)
+    if should_send:
+        return should_send, alert_type
     
-    # Check for low alert (200g)  
-    elif weight < ALERT_THRESHOLD_LOW:
-        if not device_alerts.get("200"):
-            return True, "200"
-    
-    # Weight is above 200g - reset alerts for refill detection
-    elif weight >= ALERT_THRESHOLD_LOW:
-        if device_alerts:  # Only reset if we had sent alerts
-            reset_alerts_for_device(device_id)
+    # Normal alert logic for non-zero weights
+    if weight > 0:
+        if device_id not in _device_alerts_sent:
+            _device_alerts_sent[device_id] = {}
+        
+        device_alerts = _device_alerts_sent[device_id]
+        
+        # Check for critical alert (100g)
+        if weight < ALERT_THRESHOLD_CRITICAL:
+            if not device_alerts.get("100"):
+                return True, "100"
+        
+        # Check for low alert (200g)  
+        elif weight < ALERT_THRESHOLD_LOW:
+            if not device_alerts.get("200"):
+                return True, "200"
+        
+        # Weight is above 200g - reset alerts for refill detection
+        elif weight >= ALERT_THRESHOLD_LOW:
+            if device_alerts:  # Only reset if we had sent alerts
+                reset_alerts_for_device(device_id)
     
     return False, None
 
@@ -222,14 +448,20 @@ def on_message(client, userdata, msg):
         should_send, alert_type = should_send_alert(device_id, weight)
         
         if not should_send:
-            if weight >= ALERT_THRESHOLD_LOW:
-                print(f"[updates] ✅ Weight {weight}g >= {ALERT_THRESHOLD_LOW}g; no alerts needed")
+            if weight > 0:
+                if weight >= ALERT_THRESHOLD_LOW:
+                    print(f"[updates] ✅ Weight {weight}g >= {ALERT_THRESHOLD_LOW}g; no alerts needed")
+                else:
+                    print(f"[updates] ⏭️  No new alerts needed for device {device_id} at weight {weight}g")
             else:
-                print(f"[updates] ⏭️  No new alerts needed for device {device_id} at weight {weight}g")
+                print(f"[updates] ⏳ Weight {weight}g - 'milk is over' timer active")
             return
 
         # Only query database if we actually need to send alerts
-        print(f"[updates] 🚨 LOW MILK ALERT! Weight {weight}g < threshold {ALERT_THRESHOLD_LOW}g")
+        if alert_type == "milk_is_over":
+            print(f"[updates]  MILK IS OVER ALERT! Sending 'milk is over' email")
+        else:
+            print(f"[updates]  MILK ALERT! Weight {weight}g - {alert_type}g threshold")
         
         users = find_all_users_by_device(device_id)
         if not users:
@@ -244,11 +476,17 @@ def on_message(client, userdata, msg):
             full_name = user.get("full_name")
             
             print(f"[updates] 👤 Sending alert to: {full_name} ({user_email})")
-            print(f"[updates] 🚨 Sending {alert_type}g threshold alert to {user_email} for weight: {weight}g")
-            send_email_alert(user_email, full_name, weight, alert_type)
+            
+            if alert_type == "milk_is_over":
+                print(f"[updates] 🚨 Sending 'milk is over' alert to {user_email}")
+                send_milk_is_over_email(user_email, full_name)
+            else:
+                print(f"[updates] 🚨 Sending {alert_type}g threshold alert to {user_email} for weight: {weight}g")
+                send_email_alert(user_email, full_name, weight, alert_type)
         
-        # Mark alert as sent for this device
-        mark_alert_sent(device_id, alert_type)
+        # Mark alert as sent for this device (only for threshold alerts, not "milk is over")
+        if alert_type != "milk_is_over":
+            mark_alert_sent(device_id, alert_type)
 
     except Exception as e:
         print(f"[updates] ❌ Error processing MQTT message: {e}")
@@ -263,6 +501,7 @@ def main():
     print(f"[updates] 🚨 Alert Thresholds: {ALERT_THRESHOLD_LOW}g (Low), {ALERT_THRESHOLD_CRITICAL}g (Critical)")
     print(f"[updates] 📧 Email Config: {SMTP_HOST}:{SMTP_PORT}")
     print(f"[updates] ⏰ Alert Cooldown: {ALERT_COOLDOWN_MIN} minutes")
+    print(f"[updates] 🥛 Carton Removal Detection: {CARTON_REMOVAL_GRACE_PERIOD_MIN} minute grace period for 0g readings")
     
     try:
         client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
@@ -271,6 +510,16 @@ def main():
 
     client.on_connect = on_connect
     client.on_message = on_message
+
+    # Start a background thread to check expired grace periods
+    def grace_period_checker():
+        while True:
+            time.sleep(10)  # Check every 10 seconds
+            check_expired_grace_periods()
+    
+    grace_thread = threading.Thread(target=grace_period_checker, daemon=True)
+    grace_thread.start()
+    print("[updates] 🔄 Started grace period checker thread")
 
     while True:
         try:
