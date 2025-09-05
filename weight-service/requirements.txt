@@ -1,2 +1,4 @@
 paho-mqtt
 mysql-connector-python>=8.0
+flask
+flask-cors

@@ -35,7 +35,8 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-app.use(morgan(process.env.NODE_ENV === 'development' ? 'dev' : 'combined'));
+// Disable Morgan HTTP logging to reduce verbosity
+// app.use(morgan(process.env.NODE_ENV === 'development' ? 'dev' : 'combined'));
 
 // --- Tiny in-memory session store (dev/demo) ---
 const SESS_NAME = process.env.SESSION_COOKIE_NAME || 'sid';
