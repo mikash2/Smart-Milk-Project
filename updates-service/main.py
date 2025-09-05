@@ -40,11 +40,11 @@ ALERT_COOLDOWN_MIN = int(os.getenv("ALERT_COOLDOWN_MIN", "60"))
 ALERT_THRESHOLD_LOW = float(os.getenv("ALERT_THRESHOLD_LOW", "200"))    # First alert at 200g
 ALERT_THRESHOLD_CRITICAL = float(os.getenv("ALERT_THRESHOLD_CRITICAL", "100"))  # Second alert at 100g
 
-# Track which alerts have been sent for each user
-_alerts_sent = {}  # {user_id: {"200": True, "100": True}}
+# Track which alerts have been sent for each device
+_device_alerts_sent = {}  # {device_id: {"200": True, "100": True}}
 
-# In-memory cooldown tracker
-_next_allowed_send_utc = {}  # {user_id: datetime}
+# In-memory cooldown tracker per device
+_device_cooldown_utc = {}  # {device_id: datetime}
 
 
 # =========================
@@ -53,53 +53,52 @@ _next_allowed_send_utc = {}  # {user_id: datetime}
 def _now_utc():
     return datetime.utcnow()
 
-def _cooldown_ok(user_id: int) -> bool:
-    t = _next_allowed_send_utc.get(user_id)
+def _cooldown_ok(device_id: str) -> bool:
+    t = _device_cooldown_utc.get(device_id)
     return t is None or _now_utc() >= t
 
-def _mark_sent(user_id: int):
-    _next_allowed_send_utc[user_id] = _now_utc() + timedelta(minutes=ALERT_COOLDOWN_MIN)
+def _mark_sent(device_id: str):
+    _device_cooldown_utc[device_id] = _now_utc() + timedelta(minutes=ALERT_COOLDOWN_MIN)
 
-def reset_alerts_for_user(user_id: int):
+def reset_alerts_for_device(device_id: str):
     """Reset alert tracking when milk is refilled (weight goes back up)"""
-    if user_id in _alerts_sent:
-        del _alerts_sent[user_id]
-    print(f"[updates] 🔄 Alert tracking reset for user {user_id} (milk refilled)")
+    if device_id in _device_alerts_sent:
+        del _device_alerts_sent[device_id]
+    print(f"[updates] 🔄 Alert tracking reset for device {device_id} (milk refilled)")
 
-def should_send_alert(user_id: int, weight: float) -> tuple[bool, str]:
+def should_send_alert(device_id: str, weight: float) -> tuple[bool, str]:
     """
     Returns (should_send, alert_type)
     alert_type: "200" or "100" or None
     """
-    if user_id not in _alerts_sent:
-        _alerts_sent[user_id] = {}
+    if device_id not in _device_alerts_sent:
+        _device_alerts_sent[device_id] = {}
     
-    user_alerts = _alerts_sent[user_id]
+    device_alerts = _device_alerts_sent[device_id]
     
     # Check for critical alert (100g)
     if weight < ALERT_THRESHOLD_CRITICAL:
-        if not user_alerts.get("100"):
+        if not device_alerts.get("100"):
             return True, "100"
     
     # Check for low alert (200g)  
     elif weight < ALERT_THRESHOLD_LOW:
-        if not user_alerts.get("200"):
+        if not device_alerts.get("200"):
             return True, "200"
     
     # Weight is above 200g - reset alerts for refill detection
     elif weight >= ALERT_THRESHOLD_LOW:
-        if user_alerts:  # Only reset if we had sent alerts
-            reset_alerts_for_user(user_id)
+        if device_alerts:  # Only reset if we had sent alerts
+            reset_alerts_for_device(device_id)
     
     return False, None
 
-def mark_alert_sent(user_id: int, alert_type: str):
-    """Mark that we've sent this type of alert to this user"""
-    if user_id not in _alerts_sent:
-        _alerts_sent[user_id] = {}
-    _alerts_sent[user_id][alert_type] = True
-    print(f"[updates] 📝 Marked {alert_type}g alert as sent for user {user_id}")
-
+def mark_alert_sent(device_id: str, alert_type: str):
+    """Mark that we've sent this type of alert for this device"""
+    if device_id not in _device_alerts_sent:
+        _device_alerts_sent[device_id] = {}
+    _device_alerts_sent[device_id][alert_type] = True
+    print(f"[updates] 📝 Marked {alert_type}g alert as sent for device {device_id}")
 
 # =========================
 # DB access
@@ -123,7 +122,6 @@ def find_all_users_by_device(device_id: str):
             cur.close(); conn.close()
         except Exception:
             pass
-
 
 # =========================
 # MQTT payload parsing
@@ -210,10 +208,8 @@ def print_alert(user_id: int, weight: float):
 # =========================
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        print("[updates] ✅ Connected to MQTT broker successfully!")
-        print(f"[updates] 📡 Subscribing to topic: {MQTT_TOPIC}")
         client.subscribe(MQTT_TOPIC)
-        print("[updates] 🔔 Ready to monitor for low milk alerts")
+        print("[updates] ✅ Connected to MQTT broker and subscribing to topic: {MQTT_TOPIC} successfully!")
     else:
         print(f"[updates] ❌ MQTT connection failed with code: {rc}")
 
@@ -222,10 +218,17 @@ def on_message(client, userdata, msg):
         device_id, weight = parse_payload(msg.payload)
         print(f"[updates] ⚖️  Received weight: {weight}g from device: {device_id}")
         
-        if weight >= ALERT_THRESHOLD_LOW:
-            print(f"[updates] ✅ Weight {weight}g >= {ALERT_THRESHOLD_LOW}g; no alerts needed")
+        # Check if we should send an alert for this device
+        should_send, alert_type = should_send_alert(device_id, weight)
+        
+        if not should_send:
+            if weight >= ALERT_THRESHOLD_LOW:
+                print(f"[updates] ✅ Weight {weight}g >= {ALERT_THRESHOLD_LOW}g; no alerts needed")
+            else:
+                print(f"[updates] ⏭️  No new alerts needed for device {device_id} at weight {weight}g")
             return
 
+        # Only query database if we actually need to send alerts
         print(f"[updates] 🚨 LOW MILK ALERT! Weight {weight}g < threshold {ALERT_THRESHOLD_LOW}g")
         
         users = find_all_users_by_device(device_id)
@@ -233,25 +236,19 @@ def on_message(client, userdata, msg):
             print(f"[updates] ❌ No users found for device_id='{device_id}', skipping alert")
             return
 
-        print(f"[updates] 👥 Found {len(users)} user(s) connected to device {device_id}")
+        print(f"[updates]  Found {len(users)} user(s) connected to device {device_id}")
 
         # Send alerts to all users connected to this device
         for user in users:
-            user_id = user["id"]
-            full_name = user.get("full_name")
             user_email = user.get("email")
+            full_name = user.get("full_name")
             
-            print(f"[updates] 👤 Processing user: ID={user_id}, Name={full_name}, Email={user_email}")
-
-            # Check if we should send an alert to this specific user
-            should_send, alert_type = should_send_alert(user_id, weight)
-            
-            if should_send:
-                print(f"[updates] 🚨 Sending {alert_type}g threshold alert to {user_email} for weight: {weight}g")
-                send_email_alert(user_email, full_name, weight, alert_type)
-                mark_alert_sent(user_id, alert_type)
-            else:
-                print(f"[updates] ⏭️  No new alerts needed for user {user_id} ({user_email}) at weight {weight}g")
+            print(f"[updates] 👤 Sending alert to: {full_name} ({user_email})")
+            print(f"[updates] 🚨 Sending {alert_type}g threshold alert to {user_email} for weight: {weight}g")
+            send_email_alert(user_email, full_name, weight, alert_type)
+        
+        # Mark alert as sent for this device
+        mark_alert_sent(device_id, alert_type)
 
     except Exception as e:
         print(f"[updates] ❌ Error processing MQTT message: {e}")
