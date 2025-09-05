@@ -13,7 +13,7 @@ cd ..
 
 # Build all services with version tags only
 Write-Host "Building Docker images..." -ForegroundColor Yellow
-docker build --no-cache -t mika66/smart-milk-weight-service:v1.8 ./weight-service
+docker build --no-cache -t mika66/smart-milk-weight-service:v1.9 ./weight-service
 docker build --no-cache -t mika66/smart-milk-analysis-service:v1.3 ./analysis-service
 docker build --no-cache -t mika66/smart-milk-updates-service:v1.4 ./updates-service
 docker build --no-cache -t mika66/smart-milk-users-service:v1.3 ./users-service
@@ -23,7 +23,7 @@ Write-Host "All images built successfully!" -ForegroundColor Green
 
 # Push to Docker Hub (only v1.1 tags)
 Write-Host "Pushing v1.1 images to Docker Hub..." -ForegroundColor Yellow
-docker push mika66/smart-milk-weight-service:v1.8
+docker push mika66/smart-milk-weight-service:v1.9
 docker push mika66/smart-milk-analysis-service:v1.3
 docker push mika66/smart-milk-updates-service:v1.4
 docker push mika66/smart-milk-users-service:v1.3

@@ -271,7 +271,7 @@ spec:
     spec:
       containers:
       - name: weight-service
-        image: mika66/smart-milk-weight-service:v1.8
+        image: mika66/smart-milk-weight-service:v1.9
         imagePullPolicy: Always
         env:
         - name: MODE

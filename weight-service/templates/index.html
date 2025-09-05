@@ -210,7 +210,6 @@
                 if (result.success) {
                     showMessage(result.message, true);
                     addLogEntry(`✓ Weight ${weight}g sent successfully (${result.message_id})`, true);
-                    messagesSent++;
                     weightInput.value = '';
                 } else {
                     showMessage(result.message, false);
@@ -234,8 +233,7 @@
                     <strong>Service:</strong> ${status.service}<br>
                     <strong>MQTT Host:</strong> ${status.mqtt_host}<br>
                     <strong>MQTT Topic:</strong> ${status.mqtt_topic}<br>
-                    <strong>Device ID:</strong> ${status.device_id}<br>
-                    <strong>Messages Sent:</strong> ${status.messages_sent}
+                    <strong>Device ID:</strong> ${status.device_id}
                 `;
             } catch (error) {
                 document.getElementById('status').innerHTML = 'Failed to load status';

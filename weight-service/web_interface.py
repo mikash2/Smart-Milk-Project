@@ -10,10 +10,10 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# MQTT Configuration
-MQTT_HOST = "smart-milk-mosquitto-service"
-MQTT_PORT = 1883
-MQTT_TOPIC = "milk/weight"
+# MQTT Configuration - Use environment variables with fallbacks
+MQTT_HOST = os.getenv("MQTT_HOST", "smart-milk-mosquitto-service")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_TOPIC = os.getenv("MQTT_TOPIC", "milk/weight")
 
 # Device Configuration
 DEVICE_ID = os.getenv("DEVICE_ID", "device1")
@@ -24,7 +24,7 @@ message_count = 0
 
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print("[weight-web] Connected to MQTT broker successfully", flush=True)
+        print(f"[weight-web] Connected to MQTT broker at {MQTT_HOST}:{MQTT_PORT} successfully", flush=True)
     else:
         print(f"[weight-web] ERROR - Connection failed (rc: {rc})", flush=True)
 
