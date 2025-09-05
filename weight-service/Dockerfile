@@ -5,4 +5,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Add this line to force unbuffered output
 ENV PYTHONUNBUFFERED=1
 COPY . .
-CMD ["python", "main.py"]
+
+# Create templates directory if it doesn't exist
+RUN mkdir -p templates
+
+# Default to simulation mode, can be overridden with environment variable
+ENV MODE=simulation
+
+# Expose port for web interface
+EXPOSE 5000
+
+CMD ["python", "start.py"]
