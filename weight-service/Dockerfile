@@ -10,7 +10,7 @@ COPY . .
 RUN mkdir -p templates
 
 # Default to simulation mode, can be overridden with environment variable
-ENV MODE=simulation
+ENV MODE=web
 
 # Expose port for web interface
 EXPOSE 5000
