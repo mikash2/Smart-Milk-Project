@@ -271,9 +271,11 @@ spec:
     spec:
       containers:
       - name: weight-service
-        image: mika66/smart-milk-weight-service:v1.7
+        image: mika66/smart-milk-weight-service:v1.9
         imagePullPolicy: Always
         env:
+        - name: MODE
+          value: "web"  # Enable web interface mode
         - name: MQTT_HOST
           value: "smart-milk-mosquitto-service"
         - name: MQTT_PORT
@@ -288,6 +290,9 @@ spec:
             configMapKeyRef:
               name: smart-milk-config
               key: DEVICE_ID
+        ports:
+        - containerPort: 5000  # Add web interface port
+          name: web
         resources:
           requests:
             memory: "64Mi"
@@ -519,7 +524,7 @@ spec:
     spec:
       containers:
       - name: users-service
-        image: mika66/smart-milk-users-service:v1.2
+        image: mika66/smart-milk-users-service:v1.3
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
@@ -759,12 +764,15 @@ apiVersion: v1
 kind: Service
 metadata:
   name: smart-milk-weight-service
+  labels:
+    app: smart-milk-weight-service
 spec:
+  type: LoadBalancer
+  ports:
+  - name: web
+    protocol: TCP
+    port: 5000
+    targetPort: 5000
   selector:
     app: smart-milk-weight-service
-  ports:
-  - protocol: TCP
-    port: 1883
-    targetPort: 1883
-  type: ClusterIP
 
