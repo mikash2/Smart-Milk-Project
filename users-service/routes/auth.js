@@ -38,20 +38,20 @@ router.post('/register', async (req, res) => {
 
   try {
     // uniqueness checks (only for username and email, not device_id)
-    const [uTaken] = await db.query('SELECT 1 FROM `users` WHERE `username` = ? LIMIT 1', [uname]);
-    if (uTaken) {
+    const uTaken = await db.query('SELECT 1 FROM `users` WHERE `username` = ? LIMIT 1', [uname]);
+    if (uTaken.length > 0) { // username taken
       console.log(`[users] ❌ Registration failed - Username already taken: ${uname}`);
       return res.status(409).json({ success: false, message: 'Username already taken' });
     }
 
-    const [eTaken] = await db.query('SELECT 1 FROM `users` WHERE `email` = ? LIMIT 1', [emailLower]);
-    if (eTaken) {
+    const eTaken = await db.query('SELECT 1 FROM `users` WHERE `email` = ? LIMIT 1', [emailLower]);
+    if (eTaken.length > 0) { // email taken
       console.log(`[users] ❌ Registration failed - Email already registered: ${emailLower}`);
       return res.status(409).json({ success: false, message: 'Email already registered' });
     }
 
     // Insert new user (device_id can be shared among multiple users)
-    const [result] = await db.query(
+    const result = await db.query(
       'INSERT INTO `users` (`username`, `password`, `email`, `full_name`, `device_id`, `phone`) VALUES (?, ?, ?, ?, ?, ?)',
       [uname, password, emailLower, fullName, deviceId, phoneNum]
     );
