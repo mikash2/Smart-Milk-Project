@@ -111,7 +111,7 @@ export default function MilkSettings() {
             </div>
 
             <div className="auth__group">
-              <label className="label">סף התראה (%)</label>
+              <label className="label">סף התראה (בגרם)</label>
               <input
                 className="input"
                 type="number"
