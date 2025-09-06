@@ -4,6 +4,8 @@ import os
 import time
 import math
 from datetime import datetime, timedelta, date
+import threading
+
 
 import mysql.connector
 import paho.mqtt.client as mqtt
@@ -40,6 +42,16 @@ MIN_DAYS_FOR_AVG = int(os.getenv("MIN_DAYS_FOR_AVG", "2"))
 # Baseline "full" calculation:
 # 0 → use all-time max; otherwise: use max over last N days
 FULL_BASELINE_LOOKBACK_DAYS = int(os.getenv("FULL_BASELINE_LOOKBACK_DAYS", "0"))
+
+# ======= Ingestion controls (new) =======
+SAVE_MIN_INTERVAL_S   = int(os.getenv("SAVE_MIN_INTERVAL_S", "60"))   # write at most once per N seconds
+IGNORE_ZERO_WEIGHTS   = os.getenv("IGNORE_ZERO_WEIGHTS", "1") == "1"  # skip weight==0 readings (lifted bottle)
+NOISE_EPSILON_G       = float(os.getenv("NOISE_EPSILON_G", "0"))      # ignore tiny changes (< epsilon)
+
+# Shared state for throttled saves
+_last_saved_monotonic = 0.0
+_last_seen_weight     = None     # latest non-zero candidate for saving
+_state_lock           = threading.Lock()
 
 # ======= DB Helpers =======
 def get_user_id_by_device(conn, device_id: str):
@@ -317,21 +329,54 @@ def save_weight(weight: float):
         except Exception:
             pass
 
+def saver_loop():
+    """Background loop: every few seconds, if a minute passed since last save,
+    persist the latest non-zero weight we saw."""
+    global _last_saved_monotonic
+    while True:
+        time.sleep(2)  # check cadence; doesn’t control save rate (that’s SAVE_MIN_INTERVAL_S)
+        try:
+            now = time.monotonic()
+            with _state_lock:
+                candidate = _last_seen_weight
+                can_save = (candidate is not None) and (now - _last_saved_monotonic >= SAVE_MIN_INTERVAL_S)
+
+            if can_save:
+                save_weight(float(candidate))
+                _last_saved_monotonic = now
+                print(f"[analysis] Throttled save ! ({candidate}g). Next save after {SAVE_MIN_INTERVAL_S}s.")
+        except Exception as e:
+            print(f"[analysis] Saver loop error: {e}")
+
 # ======= MQTT callbacks =======
 def on_connect(client, userdata, flags, rc, properties=None):
     client.subscribe(MQTT_TOPIC)
     print(f"[analysis] Connected to MQTT and subscribed to {MQTT_TOPIC}")
 
 def on_message(client, userdata, msg, properties=None):
+    global _last_seen_weight
     try:
         payload = msg.payload.decode().strip()
-        weight = float(payload)  # expects raw numeric grams
-        print(f"[analysis] Received weight: {weight}g")
-        save_weight(weight)
+        w = float(payload)  # expects raw numeric grams
+
+        # Ignore "lifted" zeros if configured
+        if IGNORE_ZERO_WEIGHTS and w == 0.0:
+            print(f"[analysis] Ignoring 0g (bottle lifted).")
+            return
+
+        with _state_lock:
+            if _last_seen_weight is None or abs(w - _last_seen_weight) >= NOISE_EPSILON_G:
+                _last_seen_weight = w
+                # We just remember the latest good weight; saver thread decides when to persist.
+        print(f"[analysis] Stashed latest weight candidate: {w}g")
     except Exception as e:
         print(f"[analysis] Error parsing/handling message: {e}")
 
+
 def main():
+    t = threading.Thread(target=saver_loop, daemon=True)
+    t.start()
+
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
     client.on_connect = on_connect
     client.on_message = on_message
