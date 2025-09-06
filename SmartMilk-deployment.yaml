@@ -610,7 +610,7 @@ spec:
     spec:
       containers:
       - name: myapp
-        image: mika66/smart-milk-myapp:v1.6
+        image: mika66/smart-milk-myapp:v1.8
         imagePullPolicy: Always
         ports:
         - containerPort: 80

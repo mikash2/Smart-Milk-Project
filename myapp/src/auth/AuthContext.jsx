@@ -35,6 +35,17 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Function to update user data in context
+  const updateUser = (updatedUserData) => {
+    setUser(prevUser => ({
+      ...prevUser,
+      ...updatedUserData
+    }));
+    // Also update localStorage
+    const currentUser = { ...user, ...updatedUserData };
+    localStorage.setItem('user', JSON.stringify(currentUser));
+  };
+
   // הרשמה — חובה username + email + password + device_id + phone
   const register = async ({ username, email, password, full_name = null, device_id, phone }) => {
     if (!username || !email || !password || !device_id || !phone) {
@@ -90,7 +101,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, register, login, logout }}>
+    <AuthContext.Provider value={{ user, register, login, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
