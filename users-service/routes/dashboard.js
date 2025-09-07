@@ -75,4 +75,106 @@ router.post('/status', async (req, res) => {
   }
 });
 
+// Get milk settings
+router.get('/MilkSettings/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    if (!userId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'User ID is required' 
+      });
+    }
+    
+    // Get user's device_id and threshold_wanted
+    const userData = await db.query(`
+      SELECT device_id, threshold_wanted FROM users WHERE id = ?
+    `, [userId]);
+    
+    if (!userData.length) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+    
+    const deviceId = userData[0].device_id;
+    const thresholdWanted = userData[0].threshold_wanted;
+    
+    // Get expiry_date from user_stats
+    const deviceStats = await db.query(`
+      SELECT expiry_date FROM user_stats WHERE container_id = ?
+    `, [deviceId]);
+    
+    res.json({
+      success: true,
+      userId: parseInt(userId),
+      device_id: deviceId,
+      threshold_wanted: thresholdWanted,
+      expiry_date: deviceStats[0]?.expiry_date || null
+    });
+    
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Update milk settings
+router.put('/MilkSettings', async (req, res) => {
+  try {
+    const { userId, device_id, threshold_wanted, expiry_date } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'User ID is required' 
+      });
+    }
+    
+    // Update user's threshold_wanted
+    if (threshold_wanted !== undefined) {
+      await db.query(`
+        UPDATE users 
+        SET threshold_wanted = ? 
+        WHERE id = ?
+      `, [threshold_wanted, userId]);
+    }
+    
+    // Update device's expiry_date in user_stats
+    if (expiry_date !== undefined) {
+      // Get user's device_id if not provided
+      let deviceId = device_id;
+      if (!deviceId) {
+        const userDevice = await db.query(`
+          SELECT device_id FROM users WHERE id = ?
+        `, [userId]);
+        deviceId = userDevice[0]?.device_id;
+      }
+      
+      if (deviceId) {
+        await db.query(`
+          UPDATE user_stats 
+          SET expiry_date = ? 
+          WHERE container_id = ?
+        `, [expiry_date, deviceId]);
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: 'Milk settings updated successfully'
+    });
+    
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
 module.exports = router;

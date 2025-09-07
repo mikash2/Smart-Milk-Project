@@ -1,5 +1,11 @@
 # Smart Milk Project - Docker Build, Tag, Push and Deploy Script (PowerShell)
 
+$VERSION_WEIGHT_SERVICE = "v1.9"
+$VERSION_ANALYSIS_SERVICE = "v1.3"
+$VERSION_UPDATES_SERVICE = "v2.0"
+$VERSION_USERS_SERVICE = "v1.4"
+$VERSION_MYAPP = "v1.8"
+
 $VERSION = "v1.2"
 $DOCKER_REPO = "mika66"
 
@@ -15,9 +21,9 @@ cd ..
 Write-Host "Building Docker images..." -ForegroundColor Yellow
 docker build --no-cache -t mika66/smart-milk-weight-service:v1.9 ./weight-service
 docker build --no-cache -t mika66/smart-milk-analysis-service:v1.3 ./analysis-service
-docker build --no-cache -t mika66/smart-milk-updates-service:v1.6 ./updates-service
-docker build --no-cache -t mika66/smart-milk-users-service:v1.3 ./users-service
-docker build --no-cache -t mika66/smart-milk-myapp:v1.6 ./myapp
+docker build --no-cache -t mika66/smart-milk-updates-service:v2.0 ./updates-service
+docker build --no-cache -t mika66/smart-milk-users-service:v1.4 ./users-service
+docker build --no-cache -t mika66/smart-milk-myapp:v1.8 ./myapp
 
 
 Write-Host "All images built successfully!" -ForegroundColor Green
@@ -26,9 +32,9 @@ Write-Host "All images built successfully!" -ForegroundColor Green
 Write-Host "Pushing v1.1 images to Docker Hub..." -ForegroundColor Yellow
 docker push mika66/smart-milk-weight-service:v1.9
 docker push mika66/smart-milk-analysis-service:v1.3
-docker push mika66/smart-milk-updates-service:v1.6
-docker push mika66/smart-milk-users-service:v1.3
-docker push mika66/smart-milk-myapp:v1.6
+docker push mika66/smart-milk-updates-service:v2.0
+docker push mika66/smart-milk-users-service:v1.4
+docker push mika66/smart-milk-myapp:v1.8
 
 
 # Apply deployment and perform rollout

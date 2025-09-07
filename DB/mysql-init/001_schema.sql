@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
   phone      VARCHAR(32)  NOT NULL,
   device_id  VARCHAR(50)  NOT NULL,
   created_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  threshold_wanted INT    NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uniq_username (username),
   UNIQUE KEY uniq_email    (email)
@@ -45,6 +46,7 @@ CREATE TABLE IF NOT EXISTS user_stats (
   cups_left                   FLOAT        NULL,  -- current_amount_g / avg_cup_grams
   percent_full                FLOAT        NULL,  -- 0..100
   expected_empty_date         DATE         NULL,  -- projected run-out date
+  expiration_date             DATE         NULL,  -- expiration date
   PRIMARY KEY (container_id) 
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4

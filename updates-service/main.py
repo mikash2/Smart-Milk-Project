@@ -56,6 +56,12 @@ _device_carton_removal_tracking = {}  # {device_id: {"previous_weight": float, "
 # Add this new tracking dictionary
 _device_zero_weight_tracking = {}  # {device_id: {"zero_start_time": datetime}}
 
+# User-based alert tracking per user - NEW: Track alerts per user instead of per device
+_user_alerts_sent = {}  # {user_id: {"200": True, "100": True}}
+
+# Add this global variable at the top with other tracking variables
+_last_weight_by_device = {}  # device_id -> weight
+
 
 # =========================
 # Utility helpers
@@ -80,6 +86,59 @@ def reset_alerts_for_device(device_id: str):
         del _device_carton_removal_tracking[device_id]
     
     print(f"[updates] 🔄 Alert tracking reset for device {device_id} (milk refilled)")
+
+def reset_user_alerts_for_device(device_id: str):
+    """Reset user alert tracking when milk is refilled (weight goes back up)"""
+    users = find_all_users_by_device(device_id)
+    for user in users:
+        user_id = user.get("id")
+        if user_id in _user_alerts_sent:
+            del _user_alerts_sent[user_id]
+            print(f"[updates] 🔄 User alert tracking reset for user {user_id} (milk refilled)")
+
+def should_send_user_alert(user_id: int, user_threshold: int, weight: float) -> tuple[bool, str]:
+    """
+    Check if we should send an alert to a specific user based on their threshold.
+    Returns (should_send_alert, alert_type)
+    """
+    # If weight is 0g, don't send immediate alert - wait for 1-minute timer
+    if weight == 0:
+        return False, "none"
+    
+    # Always send critical alert at 100g regardless of user threshold
+    if weight <= ALERT_THRESHOLD_CRITICAL:
+        # Check if we already sent critical alert to this user
+        if user_id not in _user_alerts_sent:
+            _user_alerts_sent[user_id] = {}
+        
+        if not _user_alerts_sent[user_id].get("100"):
+            return True, "100"
+        else:
+            return False, "none"  # Already sent critical alert
+    
+    # If user has no threshold set, use default 200g
+    if user_threshold is None:
+        user_threshold = ALERT_THRESHOLD_LOW
+    
+    # Check if weight is below user's threshold
+    if weight <= user_threshold:
+        # Check if we already sent threshold alert to this user
+        if user_id not in _user_alerts_sent:
+            _user_alerts_sent[user_id] = {}
+        
+        if not _user_alerts_sent[user_id].get("200"):
+            return True, "200"
+        else:
+            return False, "none"  # Already sent threshold alert
+    
+    return False, "none"
+
+def mark_user_alert_sent(user_id: int, alert_type: str):
+    """Mark that we've sent this type of alert to this user"""
+    if user_id not in _user_alerts_sent:
+        _user_alerts_sent[user_id] = {}
+    _user_alerts_sent[user_id][alert_type] = True
+    print(f"[updates] 📝 Marked {alert_type}g alert as sent for user {user_id}")
 
 def handle_carton_removal_logic(device_id: str, weight: float) -> tuple[bool, str]:
     """
@@ -316,6 +375,7 @@ def should_send_alert(device_id: str, weight: float) -> tuple[bool, str]:
         elif weight >= ALERT_THRESHOLD_LOW:
             if device_alerts:  # Only reset if we had sent alerts
                 reset_alerts_for_device(device_id)
+                reset_user_alerts_for_device(device_id)  # Also reset user alerts
     
     return False, None
 
@@ -330,12 +390,12 @@ def mark_alert_sent(device_id: str, alert_type: str):
 # DB access
 # =========================
 def find_all_users_by_device(device_id: str):
-    """Return list of dicts [{id, full_name, email}, ...] for ALL users with this device_id."""
+    """Return list of dicts [{id, full_name, email, threshold_wanted}, ...] for ALL users with this device_id."""
     try:
         conn = mysql.connector.connect(**MYSQL_CONFIG)
         cur  = conn.cursor(dictionary=True)
         cur.execute(
-            "SELECT id, full_name, email FROM users WHERE device_id=%s",
+            "SELECT id, full_name, email, threshold_wanted FROM users WHERE device_id=%s",
             (device_id,)
         )
         rows = cur.fetchall()
@@ -444,25 +504,7 @@ def on_message(client, userdata, msg):
         device_id, weight = parse_payload(msg.payload)
         print(f"[updates] ⚖️  Received weight: {weight}g from device: {device_id}")
         
-        # Check if we should send an alert for this device
-        should_send, alert_type = should_send_alert(device_id, weight)
-        
-        if not should_send:
-            if weight > 0:
-                if weight >= ALERT_THRESHOLD_LOW:
-                    print(f"[updates] ✅ Weight {weight}g >= {ALERT_THRESHOLD_LOW}g; no alerts needed")
-                else:
-                    print(f"[updates] ⏭️  No new alerts needed for device {device_id} at weight {weight}g")
-            else:
-                print(f"[updates] ⏳ Weight {weight}g - 'milk is over' timer active")
-            return
-
-        # Only query database if we actually need to send alerts
-        if alert_type == "milk_is_over":
-            print(f"[updates]  MILK IS OVER ALERT! Sending 'milk is over' email")
-        else:
-            print(f"[updates]  MILK ALERT! Weight {weight}g - {alert_type}g threshold")
-        
+        # Get all users connected to this device
         users = find_all_users_by_device(device_id)
         if not users:
             print(f"[updates] ❌ No users found for device_id='{device_id}', skipping alert")
@@ -470,23 +512,41 @@ def on_message(client, userdata, msg):
 
         print(f"[updates]  Found {len(users)} user(s) connected to device {device_id}")
 
-        # Send alerts to all users connected to this device
-        for user in users:
-            user_email = user.get("email")
-            full_name = user.get("full_name")
-            
-            print(f"[updates] 👤 Sending alert to: {full_name} ({user_email})")
-            
-            if alert_type == "milk_is_over":
-                print(f"[updates] 🚨 Sending 'milk is over' alert to {user_email}")
-                send_milk_is_over_email(user_email, full_name)
-            else:
-                print(f"[updates] 🚨 Sending {alert_type}g threshold alert to {user_email} for weight: {weight}g")
-                send_email_alert(user_email, full_name, weight, alert_type)
+        # Check if this is a refill (weight going up significantly)
+        previous_weight = _last_weight_by_device.get(device_id, 0)
+        is_refill = weight > previous_weight and weight >= ALERT_THRESHOLD_LOW
         
-        # Mark alert as sent for this device (only for threshold alerts, not "milk is over")
-        if alert_type != "milk_is_over":
-            mark_alert_sent(device_id, alert_type)
+        if is_refill:
+            print(f"[updates] 🔄 Milk refilled: {previous_weight}g → {weight}g, resetting user alerts")
+            reset_user_alerts_for_device(device_id)
+        
+        # Update last weight
+        _last_weight_by_device[device_id] = weight
+
+        # Check each user's threshold and send appropriate alerts
+        for user in users:
+            user_id = user.get("id")
+            user_threshold = user.get("threshold_wanted")
+            user_email = user.get("email")
+            user_name = user.get("full_name")
+            
+            # Check if we should send an alert to this specific user
+            should_alert, alert_type = should_send_user_alert(user_id, user_threshold, weight)
+            
+            if should_alert:
+                print(f"[updates] 👤 Sending {alert_type}g alert to user {user_name} ({user_email}) for weight: {weight}g")
+                send_email_alert(user_email, user_name, weight, alert_type)
+                mark_user_alert_sent(user_id, alert_type)  # Mark as sent to prevent duplicates
+            else:
+                if weight > 0:
+                    # Use the user's actual threshold for the comparison
+                    actual_threshold = user_threshold if user_threshold is not None else ALERT_THRESHOLD_LOW
+                    if weight >= actual_threshold:
+                        print(f"[updates] ✅ Weight {weight}g >= {actual_threshold}g (user threshold); no alerts needed for {user_name}")
+                    else:
+                        print(f"[updates] ⏭️  No new alerts needed for user {user_name} at weight {weight}g (threshold: {actual_threshold}g)")
+                else:
+                    print(f"[updates] ⏳ Weight {weight}g - 'milk is over' timer active")
 
     except Exception as e:
         print(f"[updates] ❌ Error processing MQTT message: {e}")

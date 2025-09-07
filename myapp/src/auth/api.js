@@ -56,3 +56,12 @@ export const getDashboard = (userId) => api.post("/dashboard/status", { userId }
 //   },
 //   events: [{ type: "fill"|"consume", amount_ml, ts }, ...]
 // }
+
+// Milk Settings
+// Milk Settings
+export const getMilkSettings = (userId) => api.get(`/dashboard/MilkSettings/${userId}`);
+export const updateMilkSettings = (settings) => api.put("/dashboard/MilkSettings", settings);
+
+// User Settings
+export const getUserSettings = (userId) => api.get(`/users/UserSettings/${userId}`);
+export const updateUserSettings = (settings) => api.put("/users/UserSettings", settings);

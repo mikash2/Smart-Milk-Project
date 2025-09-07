@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { getDashboard } from "../auth/api";
 import { useNavigate } from "react-router-dom";
-import "../styles.css";   // ✅ connect CSS file
+import "../styles.css";
 
 function fmtDate(iso) {
   if (!iso) return "-";
@@ -22,6 +22,7 @@ export default function Dashboard() {
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
 
   const fetchDashboard = async () => {
     try {
@@ -58,6 +59,30 @@ export default function Dashboard() {
       navigate("/");
     }
   };
+
+  const handleUserSettingsClick = () => {
+    navigate("/user-settings");
+    setShowSettingsDropdown(false);
+  };
+
+  const handleMilkSettingsClick = () => {
+    navigate("/milk-settings");
+    setShowSettingsDropdown(false);
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showSettingsDropdown && !event.target.closest('.user-section')) {
+        setShowSettingsDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showSettingsDropdown]);
 
   if (loading) {
     return (
@@ -97,7 +122,21 @@ export default function Dashboard() {
             <h1 className="app-title">SmartMilk</h1>
           </div>
           <div className="toolbar">
-            <span className="user-chip">שלום {user?.username}</span>
+            <div className="user-section">
+              <span className="user-chip" onClick={() => setShowSettingsDropdown(!showSettingsDropdown)}>
+                שלום {user?.username} ⚙️
+              </span>
+              {showSettingsDropdown && (
+                <div className="settings-dropdown">
+                  <button onClick={handleUserSettingsClick} className="settings-option">
+                    👤 הגדרות משתמש
+                  </button>
+                  <button onClick={handleMilkSettingsClick} className="settings-option">
+                    🥛 הגדרות חלב
+                  </button>
+                </div>
+              )}
+            </div>
             <button className="logout-btn" onClick={handleLogout}>התנתקות</button>
           </div>
         </div>
@@ -174,3 +213,4 @@ export default function Dashboard() {
     </div>
   );
 }
+

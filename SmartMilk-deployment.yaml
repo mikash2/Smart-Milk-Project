@@ -415,7 +415,7 @@ spec:
     spec:
       containers:
       - name: updates-service
-        image: mika66/smart-milk-updates-service:v1.6
+        image: mika66/smart-milk-updates-service:v2.0
         imagePullPolicy: Always
         env:
         # MQTT Configuration
@@ -524,7 +524,7 @@ spec:
     spec:
       containers:
       - name: users-service
-        image: mika66/smart-milk-users-service:v1.3
+        image: mika66/smart-milk-users-service:v1.4
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
@@ -610,7 +610,7 @@ spec:
     spec:
       containers:
       - name: myapp
-        image: mika66/smart-milk-myapp:v1.6
+        image: mika66/smart-milk-myapp:v1.8
         imagePullPolicy: Always
         ports:
         - containerPort: 80
