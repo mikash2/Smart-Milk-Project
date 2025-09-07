@@ -59,6 +59,9 @@ _device_zero_weight_tracking = {}  # {device_id: {"zero_start_time": datetime}}
 # User-based alert tracking per user - NEW: Track alerts per user instead of per device
 _user_alerts_sent = {}  # {user_id: {"200": True, "100": True}}
 
+# Add this global variable at the top with other tracking variables
+_last_weight_by_device = {}  # device_id -> weight
+
 
 # =========================
 # Utility helpers
@@ -508,6 +511,17 @@ def on_message(client, userdata, msg):
             return
 
         print(f"[updates]  Found {len(users)} user(s) connected to device {device_id}")
+
+        # Check if this is a refill (weight going up significantly)
+        previous_weight = _last_weight_by_device.get(device_id, 0)
+        is_refill = weight > previous_weight and weight >= ALERT_THRESHOLD_LOW
+        
+        if is_refill:
+            print(f"[updates] 🔄 Milk refilled: {previous_weight}g → {weight}g, resetting user alerts")
+            reset_user_alerts_for_device(device_id)
+        
+        # Update last weight
+        _last_weight_by_device[device_id] = weight
 
         # Check each user's threshold and send appropriate alerts
         for user in users:
