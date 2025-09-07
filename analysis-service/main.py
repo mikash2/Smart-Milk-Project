@@ -4,6 +4,7 @@ import os
 import time
 import math
 import json
+import threading
 from datetime import datetime, timedelta, date
 
 import mysql.connector
@@ -42,6 +43,12 @@ MIN_DAYS_FOR_AVG = int(os.getenv("MIN_DAYS_FOR_AVG", "2"))
 # Baseline "full" calculation:
 # 0 → use all-time max; otherwise: use max over last N days
 FULL_BASELINE_LOOKBACK_DAYS = int(os.getenv("FULL_BASELINE_LOOKBACK_DAYS", "0"))
+
+# Carton removal detection
+CARTON_REMOVAL_GRACE_PERIOD_MIN = int(os.getenv("CARTON_REMOVAL_GRACE_PERIOD_MIN", "1"))  # Wait 1 minute before saving 0g
+
+# Carton removal tracking per device
+_device_carton_removal_tracking = {}  # {device_id: {"zero_start_time": datetime}}
 
 # ======= DB Helpers =======
 def get_user_id_by_device(conn, device_id: str):
@@ -92,6 +99,61 @@ def insert_weight(conn, device_id: str, weight: float, ts: datetime):
     )
     # No need to commit since autocommit=True
     cur.close()
+
+# ======= Carton Removal Detection =======
+def handle_carton_removal_logic(device_id: str, weight: float) -> tuple[bool, float]:
+    """
+    Handle carton removal detection and return whether to save and what weight to save.
+    Returns (should_save, weight_to_save)
+    """
+    now = datetime.now()
+    
+    # If weight is not 0g, reset carton removal tracking
+    if weight > 0:
+        if device_id in _device_carton_removal_tracking:
+            print(f"[analysis] 🥛 Carton returned after removal! Current: {weight}g - canceling 0g timer")
+            del _device_carton_removal_tracking[device_id]
+        return True, weight  # Save immediately
+    
+    # Weight is 0g - handle carton removal
+    if device_id not in _device_carton_removal_tracking:
+        # First time seeing 0g, start tracking
+        _device_carton_removal_tracking[device_id] = {
+            "zero_start_time": now
+        }
+        print(f"[analysis] 🥛 Carton removal detected for device {device_id} - starting 1 minute grace period")
+        return False, None  # Don't save yet, wait for grace period
+    
+    tracking = _device_carton_removal_tracking[device_id]
+    
+    # Check if grace period expired
+    grace_period_expired = now >= tracking["zero_start_time"] + timedelta(minutes=CARTON_REMOVAL_GRACE_PERIOD_MIN)
+    
+    if grace_period_expired:
+        print(f"[analysis] ⏰ Grace period expired for device {device_id} - carton appears to be empty, saving 0g")
+        del _device_carton_removal_tracking[device_id]
+        return True, 0.0  # Now save 0g as the carton is truly empty
+    else:
+        remaining_time = (tracking["zero_start_time"] + timedelta(minutes=CARTON_REMOVAL_GRACE_PERIOD_MIN) - now).total_seconds()
+        print(f"[analysis] ⏳ Carton removal grace period active for device {device_id}, {remaining_time:.0f} seconds remaining")
+        return False, None  # Don't save yet, still in grace period
+
+def check_expired_grace_periods():
+    """Check if any grace periods have expired and save 0g weights"""
+    now = datetime.now()
+    expired_devices = []
+    
+    for device_id, tracking in _device_carton_removal_tracking.items():
+        grace_period_expired = now >= tracking["zero_start_time"] + timedelta(minutes=CARTON_REMOVAL_GRACE_PERIOD_MIN)
+        
+        if grace_period_expired:
+            expired_devices.append(device_id)
+            print(f"[analysis] ⏰ Grace period expired for device {device_id} - saving 0g weight")
+    
+    # Save 0g weights for expired devices
+    for device_id in expired_devices:
+        del _device_carton_removal_tracking[device_id]
+        save_weight(device_id, 0.0, 0)  # Save 0g weight
 
 # ======= Analytics =======
 def fetch_day_first_last_by_device(conn, device_id: str, start_day: date, end_day_exclusive: date):
@@ -270,7 +332,13 @@ def on_message(client, userdata, msg, properties=None):
             
             print(f"[analysis] Message #{message_counter}: Received legacy format from device {device_id}, weight {weight}g")
         
-        save_weight(device_id, weight, message_counter)
+        # Handle carton removal logic
+        should_save, weight_to_save = handle_carton_removal_logic(device_id, weight)
+        
+        if should_save:
+            save_weight(device_id, weight_to_save, message_counter)
+        else:
+            print(f"[analysis] Message #{message_counter}: Weight {weight}g - carton removal grace period active, not saving yet")
         
     except Exception as e:
         print(f"[analysis] Message #{message_counter}: ERROR - {e}")
@@ -406,6 +474,16 @@ def calculate_learned_daily_consumption(conn, device_id: str) -> float:
         return 200.0  # Default fallback
 
 def main():
+    # Start a background thread to check expired grace periods
+    def grace_period_checker():
+        while True:
+            time.sleep(10)  # Check every 10 seconds
+            check_expired_grace_periods()
+    
+    grace_thread = threading.Thread(target=grace_period_checker, daemon=True)
+    grace_thread.start()
+    print("[analysis] 🔄 Started grace period checker thread")
+
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
     client.on_connect = on_connect
     client.on_message = on_message

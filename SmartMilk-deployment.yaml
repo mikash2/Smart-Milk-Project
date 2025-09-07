@@ -320,7 +320,7 @@ spec:
     spec:
       containers:
       - name: analysis-service
-        image: mika66/smart-milk-analysis-service:v1.3
+        image: mika66/smart-milk-analysis-service:v1.4
         imagePullPolicy: Always
         env:
         - name: MQTT_HOST
