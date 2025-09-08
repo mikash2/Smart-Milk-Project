@@ -21,7 +21,7 @@ cd ..
 Write-Host "Building Docker images..." -ForegroundColor Yellow
 docker build --no-cache -t mika66/smart-milk-weight-service:v1.9 ./weight-service
 docker build --no-cache -t mika66/smart-milk-analysis-service:v1.4 ./analysis-service
-docker build --no-cache -t mika66/smart-milk-updates-service:v2.7 ./updates-service
+docker build --no-cache -t mika66/smart-milk-updates-service:v2.8 ./updates-service
 docker build --no-cache -t mika66/smart-milk-users-service:v1.4 ./users-service
 docker build --no-cache -t mika66/smart-milk-myapp:v1.8 ./myapp
 
@@ -32,7 +32,7 @@ Write-Host "All images built successfully!" -ForegroundColor Green
 Write-Host "Pushing v1.1 images to Docker Hub..." -ForegroundColor Yellow
 docker push mika66/smart-milk-weight-service:v1.9
 docker push mika66/smart-milk-analysis-service:v1.4
-docker push mika66/smart-milk-updates-service:v2.7
+docker push mika66/smart-milk-updates-service:v2.8
 docker push mika66/smart-milk-users-service:v1.4
 docker push mika66/smart-milk-myapp:v1.8
 

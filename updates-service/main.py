@@ -495,8 +495,6 @@ def on_message(client, userdata, msg):
                 print(f"[updates] 👤 Sending {alert_type}g alert to user {user_name} ({user_email}) for weight: {weight}g")
                 send_email_alert(user_email, user_name, weight, alert_type)
                 mark_user_alert_sent(user_id, alert_type)
-                print(f"[updates] ✅ {alert_type}g alert email sent to {user_email}")
-                print(f"[updates] ✅ Marked {alert_type}g alert as sent for user {user_id}")
             else:
                 print(f"[updates] ✅ Weight {weight}g >= {user_threshold}g (user threshold); no alerts needed for {user_name}")
 
