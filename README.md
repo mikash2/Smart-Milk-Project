@@ -2,8 +2,6 @@
 
 **Never run out of milk again!** Smart Milk is an IoT system that monitors the amount of milk left in your fridge and alerts you before it’s too late.
 
-![System Banner](path/to/image_from_slide_1.png)
-
 ---
 
 ## 🧐 The Problem
@@ -21,9 +19,6 @@ The **Smart Milk Container** solves this by using a weight sensor to monitor mil
 
 ## 🏗️ Architecture & Microservices
 The system is built as a set of microservices running on **Kubernetes**, ensuring scalability and high availability.
-
-![Architecture Diagram](path/to/slide_4_image.png)
-*(Add the diagram from slide 4 here)*
 
 ### Services Breakdown
 | Service | Responsibility |
