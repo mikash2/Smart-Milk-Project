@@ -58,7 +58,6 @@ float readWeight() {
 }
 
 void publishWeight(float weight) {
-  // Simple timestamp using millis; swap to NTP if you want real time
   unsigned long t = millis() / 1000;
   char payload[128];
   snprintf(payload, sizeof(payload),
